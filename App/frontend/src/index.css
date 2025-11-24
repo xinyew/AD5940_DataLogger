@@ -1,1 +1,37 @@
-/* Add your global styles here */
+body {
+  font-size: .875rem;
+}
+
+.sidebar {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 100; /* Behind the navbar */
+  padding: 48px 0 0; /* Height of navbar */
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar-card {
+  flex: 1; /* Allow cards to grow and shrink */
+  overflow-y: auto;
+  max-height: 50vh; /* Limit height to half of viewport height */
+}
+
+.sidebar .nav-link {
+  font-size: 0.8rem; /* Smaller font size for sidebar items */
+  font-weight: 500;
+  color: #333;
+}
+
+.sidebar .nav-link.active {
+  color: #007bff;
+}
+
+.plot-image {
+  max-height: 400px;
+  width: auto;
+  display: block;
+  margin: 0 auto;
+}
