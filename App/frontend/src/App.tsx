@@ -13,6 +13,13 @@ type CsvData = {
   rows: string[][];
 };
 
+type Tags = {
+  [entryName: string]: {
+    auto: string[];
+    manual: string[];
+  };
+};
+
 function App() {
   const [dataEntries, setDataEntries] = useState<string[]>([]);
   const [selectedEntry, setSelectedEntry] = useState<string | null>(null);
@@ -21,23 +28,69 @@ function App() {
   const [showVoltageSteps, setShowVoltageSteps] = useState(false);
   const [rawData, setRawData] = useState<CsvData | null>(null);
   const [voltageStepsData, setVoltageStepsData] = useState<CsvData | null>(null);
+  const [comment, setComment] = useState('');
+  const [tags, setTags] = useState<Tags>({});
+  const [filterTags, setFilterTags] = useState<string[]>([]);
+  const [newTag, setNewTag] = useState('');
 
+  // Fetch all data and set up polling
   useEffect(() => {
-    const fetchDataEntries = async () => {
+    const fetchAllData = async () => {
       try {
-        const response = await axios.get(`${API_URL}/api/data`);
-        setDataEntries(response.data);
+        const entriesRes = await axios.get(`${API_URL}/api/data`);
+        const newEntries = entriesRes.data;
+        setDataEntries(newEntries);
+
+        const tagsRes = await axios.get(`${API_URL}/api/tags`);
+        const currentTags = tagsRes.data;
+
+        // Auto-generate tags for new entries
+        let updatedTags = { ...currentTags };
+        let tagsNeedSave = false;
+        for (const entry of newEntries) {
+          if (!updatedTags[entry]) {
+            try {
+              const paramsResponse = await axios.get(`${API_URL}/api/data/${entry}/parameters`);
+              const parsedParams = paramsResponse.data.split('\n').map((line: string) => {
+                const [key, ...valueParts] = line.split(':');
+                return { key: key.trim(), value: valueParts.join(':').trim() };
+              }).filter((param: Parameter) => param.key && param.value);
+
+              const autoTags: string[] = [];
+              const deviceName = parsedParams.find((p: Parameter) => p.key === 'Device Name')?.value;
+              if (deviceName) autoTags.push(deviceName);
+              const freq = parsedParams.find((p: Parameter) => p.key === 'Param_Frequency')?.value;
+              if (freq) autoTags.push(`frequency_${freq}`);
+              const sampleDelay = parsedParams.find((p: Parameter) => p.key === 'Param_SampleDelay')?.value;
+              if (sampleDelay) autoTags.push(`sampledelay_${sampleDelay}`);
+              const rtia = parsedParams.find((p: Parameter) => p.key === 'Param_LPTIARtiaVal')?.value;
+              if (rtia) autoTags.push(`LPTIARtia_${rtia}`);
+
+              updatedTags[entry] = { auto: autoTags, manual: [] };
+              tagsNeedSave = true;
+            } catch (paramError) {
+              console.error(`Failed to fetch params for new entry ${entry}:`, paramError);
+            }
+          }
+        }
+
+        if (tagsNeedSave) {
+          handleSaveTags(updatedTags);
+        } else {
+          setTags(currentTags);
+        }
+
       } catch (error) {
-        console.error('Error fetching data entries:', error);
+        console.error('Error fetching initial data:', error);
       }
     };
 
-    fetchDataEntries();
-    const interval = setInterval(fetchDataEntries, 5000); // Poll every 5 seconds
-
+    fetchAllData();
+    const interval = setInterval(fetchAllData, 5000); // Poll every 5 seconds
     return () => clearInterval(interval);
   }, []);
 
+  // Auto-select first entry
   useEffect(() => {
     if (dataEntries.length > 0 && !selectedEntry) {
       handleEntryClick(dataEntries[0]);
@@ -50,9 +103,12 @@ function App() {
     setShowVoltageSteps(false);
     setRawData(null);
     setVoltageStepsData(null);
+    setComment('');
+
+    // Fetch parameters and generate auto tags
     try {
-      const response = await axios.get(`${API_URL}/api/data/${entry}/parameters`);
-      const parsedParams = response.data.split('\n').map((line: string) => {
+      const paramsResponse = await axios.get(`${API_URL}/api/data/${entry}/parameters`);
+      const parsedParams = paramsResponse.data.split('\n').map((line: string) => {
         const [key, ...valueParts] = line.split(':');
         const formattedKey = key.trim().replace('Param_', '');
         let formattedValue = valueParts.join(':').trim();
@@ -65,9 +121,80 @@ function App() {
         return { key: formattedKey, value: formattedValue };
       }).filter((param: Parameter) => param.key && param.value);
       setParameters(parsedParams);
+      generateAutoTags(entry, parsedParams);
     } catch (error) {
       console.error('Error fetching parameters:', error);
       setParameters([]);
+    }
+
+    // Fetch comment
+    try {
+      const commentResponse = await axios.get(`${API_URL}/api/data/${entry}/comment`);
+      setComment(commentResponse.data.comment);
+    } catch (error) {
+      console.error('Error fetching comment:', error);
+    }
+  };
+
+  const generateAutoTags = (entry: string, params: Parameter[]) => {
+    const autoTags: string[] = [];
+    const deviceName = params.find(p => p.key === 'Device Name')?.value;
+    if (deviceName) autoTags.push(deviceName);
+
+    const freq = params.find(p => p.key === 'Frequency')?.value;
+    if (freq) autoTags.push(`frequency_${freq}`);
+
+    const sampleDelay = params.find(p => p.key === 'SampleDelay')?.value;
+    if (sampleDelay) autoTags.push(`sampledelay_${sampleDelay}`);
+
+    const rtia = params.find(p => p.key === 'LPTIARtiaVal')?.value;
+    if (rtia) autoTags.push(`LPTIARtia_${rtia}`);
+
+    setTags(prevTags => ({
+      ...prevTags,
+      [entry]: {
+        ...prevTags[entry],
+        auto: autoTags,
+        manual: prevTags[entry]?.manual || [],
+      },
+    }));
+  };
+
+  const handleSaveTags = async (updatedTags: Tags) => {
+    try {
+      await axios.post(`${API_URL}/api/tags`, { tags: updatedTags });
+      setTags(updatedTags);
+    } catch (error) {
+      console.error('Error saving tags:', error);
+    }
+  };
+
+  const handleAddTag = () => {
+    if (newTag && selectedEntry && !tags[selectedEntry]?.manual.includes(newTag)) {
+      const updatedTags = { ...tags };
+      updatedTags[selectedEntry].manual.push(newTag);
+      handleSaveTags(updatedTags);
+      setNewTag('');
+    }
+  };
+
+  const handleRemoveTag = (tagToRemove: string) => {
+    if (selectedEntry) {
+      const updatedTags = { ...tags };
+      updatedTags[selectedEntry].manual = updatedTags[selectedEntry].manual.filter(t => t !== tagToRemove);
+      handleSaveTags(updatedTags);
+    }
+  };
+
+  const handleSaveComment = async () => {
+    if (selectedEntry) {
+      try {
+        await axios.post(`${API_URL}/api/data/${selectedEntry}/comment`, { comment });
+        alert('Comment saved!');
+      } catch (error) {
+        console.error('Error saving comment:', error);
+        alert('Failed to save comment.');
+      }
     }
   };
 
@@ -92,6 +219,8 @@ function App() {
       }
     }
   };
+
+  // --- RENDER FUNCTIONS ---
 
   const renderDataTable = (data: CsvData | null, title: string) => {
     if (!data) return null;
@@ -118,8 +247,47 @@ function App() {
     );
   };
 
+  const renderCommentBox = () => (
+    <div className="card mt-4">
+      <div className="card-header">Comments</div>
+      <div className="card-body">
+        <textarea
+          className="form-control"
+          rows={4}
+          value={comment}
+          onChange={(e) => setComment(e.target.value)}
+        ></textarea>
+        <button className="btn btn-primary mt-2" onClick={handleSaveComment}>Save Comment</button>
+      </div>
+    </div>
+  );
+
+  const renderTags = () => {
+    if (!selectedEntry) return null;
+    const entryTags = tags[selectedEntry] || { auto: [], manual: [] };
+    return (
+      <div className="card mt-4">
+        <div className="card-header">Tags</div>
+        <div className="card-body">
+          <div>
+            {entryTags.auto.map(tag => <span key={tag} className="badge bg-secondary me-1">{tag}</span>)}
+            {entryTags.manual.map(tag => (
+              <span key={tag} className="badge bg-info me-1">
+                {tag} <button type="button" className="btn-close btn-close-white ms-1" onClick={() => handleRemoveTag(tag)}></button>
+              </span>
+            ))}
+          </div>
+          <div className="input-group mt-3">
+            <input type="text" className="form-control" placeholder="New tag" value={newTag} onChange={(e) => setNewTag(e.target.value)} />
+            <button className="btn btn-outline-secondary" type="button" onClick={handleAddTag}>Add</button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const renderParametersSidebarCard = () => (
-    <div className="card sidebar-card mt-3">
+    <div className="card sidebar-card">
       <div className="card-header">
         Parameters
       </div>
@@ -135,6 +303,36 @@ function App() {
       </div>
     </div>
   );
+
+  const renderFilterSidebar = () => {
+    const allTags = [...new Set(Object.values(tags).flatMap(t => [...t.auto, ...t.manual]))];
+    return (
+      <div className="card sidebar-card mt-3">
+        <div className="card-header">Filter by Tags</div>
+        <div className="card-body">
+          {allTags.map(tag => (
+            <div key={tag} className="form-check">
+              <input
+                className="form-check-input"
+                type="checkbox"
+                value={tag}
+                id={`filter-${tag}`}
+                checked={filterTags.includes(tag)}
+                onChange={(e) => {
+                  if (e.target.checked) {
+                    setFilterTags([...filterTags, tag]);
+                  } else {
+                    setFilterTags(filterTags.filter(t => t !== tag));
+                  }
+                }}
+              />
+              <label className="form-check-label" htmlFor={`filter-${tag}`}>{tag}</label>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
 
   const renderDetailView = () => {
     if (!selectedEntry) {
@@ -169,6 +367,9 @@ function App() {
           ))}
         </div>
 
+        {renderTags()}
+        {renderCommentBox()}
+
         <div className="mt-4">
           <button className="btn btn-secondary me-2" onClick={() => handleToggleData('rawData')}>
             {showRawData ? 'Hide' : 'Show'} Raw Data
@@ -184,6 +385,12 @@ function App() {
     );
   };
 
+  const filteredEntries = dataEntries.filter(entry => {
+    if (filterTags.length === 0) return true;
+    const entryTags = tags[entry] ? [...tags[entry].auto, ...tags[entry].manual] : [];
+    return filterTags.every(filterTag => entryTags.includes(filterTag));
+  });
+
   return (
     <>
       <header className="navbar navbar-dark sticky-top bg-dark flex-md-nowrap p-0 shadow">
@@ -195,13 +402,14 @@ function App() {
           <nav id="sidebarMenu" className="col-md-3 col-lg-2 d-md-block bg-light sidebar collapse">
             <div className="position-sticky pt-3 sidebar-content">
               {renderParametersSidebarCard()}
+              {renderFilterSidebar()}
               <div className="card sidebar-card mt-3">
                 <div className="card-header">
                   Data Entries
                 </div>
                 <div className="card-body">
                   <ul className="nav flex-column">
-                    {dataEntries.map(entry => (
+                    {filteredEntries.map(entry => (
                       <li key={entry} className="nav-item">
                         <a
                           className={`nav-link ${selectedEntry === entry ? 'active' : ''}`}

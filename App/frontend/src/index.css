@@ -18,7 +18,7 @@ body {
 }
 
 .sidebar-card {
-  flex-basis: 50%;
+  flex-basis: 33.33%;
   overflow-y: auto;
 }
 
