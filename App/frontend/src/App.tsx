@@ -186,6 +186,30 @@ function App() {
     }
   };
 
+  const handleDeleteEntry = async (entryToDelete: string) => {
+    if (window.confirm(`Are you sure you want to delete ${entryToDelete}? This action cannot be undone.`)) {
+      try {
+        await axios.delete(`${API_URL}/api/data/${entryToDelete}`);
+        
+        // Update state
+        const newEntries = dataEntries.filter(entry => entry !== entryToDelete);
+        setDataEntries(newEntries);
+
+        const newTags = { ...tags };
+        delete newTags[entryToDelete];
+        setTags(newTags);
+
+        if (selectedEntry === entryToDelete) {
+          setSelectedEntry(null);
+        }
+
+      } catch (error) {
+        console.error('Error deleting entry:', error);
+        alert('Failed to delete entry.');
+      }
+    }
+  };
+
   const handleSaveComment = async () => {
     if (selectedEntry) {
       try {
@@ -410,7 +434,7 @@ function App() {
                 <div className="card-body">
                   <ul className="nav flex-column">
                     {filteredEntries.map(entry => (
-                      <li key={entry} className="nav-item">
+                      <li key={entry} className="nav-item d-flex justify-content-between align-items-center">
                         <a
                           className={`nav-link ${selectedEntry === entry ? 'active' : ''}`}
                           href="#"
@@ -421,6 +445,9 @@ function App() {
                         >
                           {entry}
                         </a>
+                        <button className="btn btn-sm btn-outline-danger" onClick={() => handleDeleteEntry(entry)}>
+                          &times;
+                        </button>
                       </li>
                     ))}
                   </ul>

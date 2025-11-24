@@ -102,6 +102,18 @@ app.post('/api/tags', async (req, res) => {
     }
 });
 
+app.delete('/api/data/:entryName', async (req, res) => {
+    const { entryName } = req.params;
+    const entryPath = path.join(dataDir, entryName);
+    try {
+        await fs.rm(entryPath, { recursive: true, force: true });
+        res.status(200).send('Entry deleted');
+    } catch (error) {
+        console.error('Error deleting entry:', error);
+        res.status(500).send('Error deleting entry');
+    }
+});
+
 
 app.listen(port, () => {
   console.log(`Backend server listening at http://localhost:${port}`);

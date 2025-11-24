@@ -23,9 +23,19 @@ body {
 }
 
 .sidebar .nav-link {
-  font-size: 0.8rem; /* Smaller font size for sidebar items */
+  font-size: 0.7rem; /* Even smaller font size for data entries */
   font-weight: 500;
   color: #333;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-grow: 1;
+}
+
+.sidebar .nav-item .btn-outline-danger {
+  padding: 0.1rem 0.3rem;
+  font-size: 0.8rem;
+  margin-left: 0.5rem;
 }
 
 .sidebar .nav-link.active {
