@@ -121,8 +121,9 @@ function App() {
       <div className="container-fluid">
         <div className="row">
           <nav id="sidebarMenu" className="col-md-3 col-lg-2 d-md-block bg-light sidebar collapse">
-            <div className="position-sticky pt-3">
-              <div className="card sidebar-card">
+            <div className="position-sticky pt-3 sidebar-content">
+              {renderParametersSidebarCard()}
+              <div className="card sidebar-card mt-3">
                 <div className="card-header">
                   Data Entries
                 </div>
@@ -145,7 +146,6 @@ function App() {
                   </ul>
                 </div>
               </div>
-              {renderParametersSidebarCard()}
             </div>
           </nav>
           {renderDetailView()}

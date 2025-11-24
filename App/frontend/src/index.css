@@ -9,14 +9,17 @@ body {
   left: 0;
   z-index: 100; /* Behind the navbar */
   padding: 48px 0 0; /* Height of navbar */
+}
+
+.sidebar-content {
   display: flex;
   flex-direction: column;
+  height: calc(100vh - 48px); /* Full height minus navbar */
 }
 
 .sidebar-card {
-  flex: 1; /* Allow cards to grow and shrink */
+  flex-basis: 50%;
   overflow-y: auto;
-  max-height: 50vh; /* Limit height to half of viewport height */
 }
 
 .sidebar .nav-link {
