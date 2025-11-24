@@ -8,10 +8,19 @@ type Parameter = {
   value: string;
 };
 
+type CsvData = {
+  headers: string[];
+  rows: string[][];
+};
+
 function App() {
   const [dataEntries, setDataEntries] = useState<string[]>([]);
   const [selectedEntry, setSelectedEntry] = useState<string | null>(null);
   const [parameters, setParameters] = useState<Parameter[]>([]);
+  const [showRawData, setShowRawData] = useState(false);
+  const [showVoltageSteps, setShowVoltageSteps] = useState(false);
+  const [rawData, setRawData] = useState<CsvData | null>(null);
+  const [voltageStepsData, setVoltageStepsData] = useState<CsvData | null>(null);
 
   useEffect(() => {
     const fetchDataEntries = async () => {
@@ -37,6 +46,10 @@ function App() {
 
   const handleEntryClick = async (entry: string) => {
     setSelectedEntry(entry);
+    setShowRawData(false);
+    setShowVoltageSteps(false);
+    setRawData(null);
+    setVoltageStepsData(null);
     try {
       const response = await axios.get(`${API_URL}/api/data/${entry}/parameters`);
       const parsedParams = response.data.split('\n').map((line: string) => {
@@ -56,6 +69,53 @@ function App() {
       console.error('Error fetching parameters:', error);
       setParameters([]);
     }
+  };
+
+  const handleToggleData = async (dataType: 'rawData' | 'voltageSteps') => {
+    const shouldShow = dataType === 'rawData' ? !showRawData : !showVoltageSteps;
+    const setter = dataType === 'rawData' ? setShowRawData : setShowVoltageSteps;
+    const dataSetter = dataType === 'rawData' ? setRawData : setVoltageStepsData;
+    const currentData = dataType === 'rawData' ? rawData : voltageStepsData;
+    const fileName = dataType === 'rawData' ? 'output_data.csv' : 'voltage_steps.csv';
+
+    setter(shouldShow);
+
+    if (shouldShow && !currentData && selectedEntry) {
+      try {
+        const response = await axios.get(`${API_URL}/api/data/${selectedEntry}/csv/${fileName}`);
+        const lines = response.data.split('\n');
+        const headers = lines[0].split(',');
+        const rows = lines.slice(1).map((line: string) => line.split(','));
+        dataSetter({ headers, rows });
+      } catch (error) {
+        console.error(`Error fetching ${fileName}:`, error);
+      }
+    }
+  };
+
+  const renderDataTable = (data: CsvData | null, title: string) => {
+    if (!data) return null;
+    return (
+      <div className="card mt-4">
+        <div className="card-header">{title}</div>
+        <div className="card-body" style={{ maxHeight: '400px', overflowY: 'auto' }}>
+          <table className="table table-sm table-striped">
+            <thead>
+              <tr>
+                {data.headers.map(header => <th key={header}>{header}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {data.rows.map((row, index) => (
+                <tr key={index}>
+                  {row.map((cell, cellIndex) => <td key={cellIndex}>{cell}</td>)}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
   };
 
   const renderParametersSidebarCard = () => (
@@ -108,6 +168,18 @@ function App() {
             </div>
           ))}
         </div>
+
+        <div className="mt-4">
+          <button className="btn btn-secondary me-2" onClick={() => handleToggleData('rawData')}>
+            {showRawData ? 'Hide' : 'Show'} Raw Data
+          </button>
+          <button className="btn btn-secondary" onClick={() => handleToggleData('voltageSteps')}>
+            {showVoltageSteps ? 'Hide' : 'Show'} Voltage Steps
+          </button>
+        </div>
+
+        {showRawData && renderDataTable(rawData, 'Raw Output Data')}
+        {showVoltageSteps && renderDataTable(voltageStepsData, 'Voltage Steps')}
       </main>
     );
   };
