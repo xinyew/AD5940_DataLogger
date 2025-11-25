@@ -17,16 +17,15 @@ def parse_line(line, state, data):
     """Parses a line of SWO data and updates the state and data."""
     new_state = state
 
-    # "Device Name:" is the trigger for the start of a new data acquisition run
-    # If we are already in the middle of a run, this indicates a new one is starting.
-    # So, we should first save the data we've collected so far.
+    # "Device Name:" is the trigger to save the PREVIOUS run and start a new one.
     if line.startswith('Device Name:'):
-        if state not in ['waiting_for_data', 'initial']:
-            print("\n--- New run detected by 'Device Name:'. Saving previous run. ---\n")
+        # If we have collected actual data points, it means a run was in progress.
+        if data.get('output_data'):
+            print("\n--- New run detected by 'Device Name:'. Saving previously collected run. ---\n")
             save_data_and_plots(data)
 
+        # Reset data for the new run.
         print("\n--- Resetting parser state for new run. ---\n")
-        # Reset data for a new run
         data.clear()
         data.update({
             'device_name': line.split(':', 1)[1].strip(),
@@ -39,9 +38,11 @@ def parse_line(line, state, data):
         print("Parsing parameters...")
         return new_state
 
-    # Ignore system logs that are not the device name trigger
-    if line.startswith('[I]'):
-        return new_state
+    # Handle the case where 'Data Output:' is missing before index lines
+    if state == 'voltage_steps' and line.startswith('index:'):
+        print("INFO: 'index:' detected while in 'voltage_steps' state. Switching to data parsing.")
+        new_state = 'data_output'
+        state = 'data_output' # Immediately update state for this line's processing
 
     if state == 'parsing_params':
         if line.startswith('Param_'):
@@ -50,7 +51,7 @@ def parse_line(line, state, data):
         elif line.startswith('Voltage Steps:'):
             new_state = 'voltage_steps'
             print("Parsing voltage steps...")
-
+    
     elif state == 'voltage_steps':
         if line.startswith("Voltage Step:"):
             try:
@@ -72,23 +73,9 @@ def parse_line(line, state, data):
                 data['output_data'].append((index, value))
             except (ValueError, IndexError):
                 pass
-        # Unlike before, we don't stop here. We'll wait for the next "Device Name:"
-        # to signal the end of the complete measurement run.
-
-    # The "finished" message can be used to trigger saving if it's the end of a session.
-    if "SqrWave Voltammetry test finished" in line:
-        if data['output_data']: # Only save if we have data
-            print("\n--- 'Finished' message detected. Saving current run data. ---\n")
-            save_data_and_plots(data)
-            # Reset for a potential new run without a 'Device Name:' trigger
-            new_state = 'waiting_for_data'
-            data.clear()
-            data.update({
-                'device_name': None,
-                'params': {},
-                'voltage_steps': [],
-                'output_data': []
-            })
+        elif "SqrWave Voltammetry test finished" in line:
+            # This just marks the end of a chunk. We don't change state.
+            print("--- Finished receiving a data chunk. Continuing... ---")
             
     return new_state
 
@@ -110,12 +97,14 @@ def generate_swv_plot(data, dir_name):
         print(f"Warning: Could not parse voltage range for SWV plot. Error: {e}")
         return
 
+    # Copy data to avoid modifying the original list in `data`
+    output_data = list(data['output_data'])
     # Handle uneven number of data points by discarding the last one
-    if len(data['output_data']) % 2 != 0:
-        print(f"Warning: Received an odd number of data points ({len(data['output_data'])}). Discarding the last point.")
-        data['output_data'] = data['output_data'][:-1]
+    if len(output_data) % 2 != 0:
+        print(f"Warning: Received an odd number of data points ({len(output_data)}). Discarding the last point for plotting.")
+        output_data = output_data[:-1]
 
-    raw_values = [val for _, val in data['output_data']]
+    raw_values = [val for _, val in output_data]
     
     if len(raw_values) < 2:
         print("Warning: Not enough data points to create SWV plot.")
@@ -145,8 +134,12 @@ def generate_swv_plot(data, dir_name):
 def save_data_and_plots(data):
     """Saves the collected data and generates plots."""
     if not data.get('device_name'):
-        print("No device name found. Using 'default_device'.")
-        data['device_name'] = 'default_device'
+        print("No device name found, cannot save. Skipping.")
+        return
+    
+    if not data.get('output_data'):
+        print("No output data collected, cannot save. Skipping.")
+        return
 
     timestamp = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
     run_dir_name = f"{timestamp}_{data['device_name']}"
@@ -200,42 +193,40 @@ def main():
         print(f"Created base output directory: {OUTPUT_DIR}")
 
     print(f"Starting SWO data capture with command: {COMMANDER_CMD}")
+
+    process = None
+    state = 'waiting_for_data'
+    data = {}
     
     try:
         process = subprocess.Popen(COMMANDER_CMD, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, shell=True, bufsize=1)
-
-        state = 'waiting_for_data'
-        data = {
-            'device_name': None,
-            'params': {},
-            'voltage_steps': [],
-            'output_data': []
-        }
 
         for line in iter(process.stdout.readline, ''):
             decoded_line = line.strip()
             if not decoded_line:
                 continue
 
-            print(decoded_line) # Print the raw output for debugging
+            print(decoded_line) 
             state = parse_line(decoded_line, state, data)
-
-            if state == 'finished':
-                save_data_and_plots(data)
-                # Reset state to wait for the next run
-                state = 'waiting_for_data'
         
-        # Check for any errors at the end
-        stderr_output = process.stderr.read()
-        if stderr_output:
-            print("\n--- Errors from commander ---")
-            print(stderr_output)
+        # After the loop finishes (commander process ends), save any lingering data.
+        if data.get('output_data'):
+            print("\n--- End of stream. Saving final data set. ---\n")
+            save_data_and_plots(data)
 
-    except FileNotFoundError:
-        print(f"Error: The command '{COMMANDER_CMD.split()[0]}' was not found.")
-        print("Please ensure the Simplicity Commander tool is installed and that its location is in your system's PATH.")
+    except KeyboardInterrupt:
+        print("\n\n--- Keyboard Interrupt detected. ---")
+        if data.get('output_data'):
+            print("--- Saving any buffered data before exiting. ---\n")
+            save_data_and_plots(data)
+        print("--- Capture stopped by user. ---")
+
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
+
+    finally:
+        if process:
+            process.terminate()
 
     print("SWO data capture finished.")
 
