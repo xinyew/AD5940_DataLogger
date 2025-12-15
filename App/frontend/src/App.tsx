@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
+import InteractivePlot from './components/InteractivePlot';
 
 const API_URL = 'http://localhost:4000';
 
@@ -11,6 +12,11 @@ type Parameter = {
 type CsvData = {
   headers: string[];
   rows: string[][];
+};
+
+type PlotData = {
+  x: number[];
+  y: number[];
 };
 
 type Tags = {
@@ -32,6 +38,11 @@ function App() {
   const [tags, setTags] = useState<Tags>({});
   const [filterTags, setFilterTags] = useState<string[]>([]);
   const [newTag, setNewTag] = useState('');
+
+  // Plot Data States
+  const [swvPlotData, setSwvPlotData] = useState<PlotData | null>(null);
+  const [rawPlotData, setRawPlotData] = useState<PlotData | null>(null);
+  const [voltagePlotData, setVoltagePlotData] = useState<PlotData | null>(null);
 
   // Fetch all data and set up polling
   useEffect(() => {
@@ -104,6 +115,11 @@ function App() {
     setRawData(null);
     setVoltageStepsData(null);
     setComment('');
+    setSwvPlotData(null);
+    setRawPlotData(null);
+    setVoltagePlotData(null);
+
+    let currentParams: Parameter[] = [];
 
     // Fetch parameters and generate auto tags
     try {
@@ -120,6 +136,8 @@ function App() {
         }
         return { key: formattedKey, value: formattedValue };
       }).filter((param: Parameter) => param.key && param.value);
+      
+      currentParams = parsedParams;
       setParameters(parsedParams);
       generateAutoTags(entry, parsedParams);
     } catch (error) {
@@ -133,6 +151,71 @@ function App() {
       setComment(commentResponse.data.comment);
     } catch (error) {
       console.error('Error fetching comment:', error);
+    }
+
+    // Fetch and process data for plots
+    fetchAndProcessPlotData(entry, currentParams);
+  };
+
+  const fetchAndProcessPlotData = async (entry: string, params: Parameter[]) => {
+    try {
+      // Fetch Raw Output Data
+      const outputRes = await axios.get(`${API_URL}/api/data/${entry}/csv/output_data.csv`);
+      const outputLines = outputRes.data.trim().split('\n');
+      // Skip header (Index,Value)
+      const outputRows = outputLines.slice(1).map((line: string) => line.split(',').map(Number));
+      
+      const rawX = outputRows.map((row: number[]) => row[0]);
+      const rawY = outputRows.map((row: number[]) => row[1]);
+      setRawPlotData({ x: rawX, y: rawY });
+
+      // Calculate SWV Data
+      // Needs Param_RampStartVolt and Param_RampPeakVolt
+      const startVoltParam = params.find(p => p.key === 'RampStartVolt')?.value;
+      const endVoltParam = params.find(p => p.key === 'RampPeakVolt')?.value;
+
+      if (startVoltParam && endVoltParam && rawY.length > 0) {
+        const startVolt = parseFloat(startVoltParam);
+        const endVolt = parseFloat(endVoltParam);
+        
+        let cleanValues = [...rawY];
+        if (cleanValues.length % 2 !== 0) {
+            cleanValues.pop();
+        }
+
+        const differences: number[] = [];
+        for (let i = 0; i < cleanValues.length; i += 2) {
+            differences.push(cleanValues[i + 1] - cleanValues[i]);
+        }
+        
+        const numPoints = differences.length;
+        const swvX: number[] = [];
+        if (numPoints > 0) {
+            const scaleFactor = endVolt - startVolt;
+            for (let i = 0; i < numPoints; i++) {
+                swvX.push(startVolt + (i * scaleFactor / numPoints));
+            }
+        }
+
+        setSwvPlotData({ x: swvX, y: differences });
+      }
+
+    } catch (error) {
+      console.error("Error fetching or processing output data for plots:", error);
+    }
+
+    try {
+        // Fetch Voltage Steps
+        const voltRes = await axios.get(`${API_URL}/api/data/${entry}/csv/voltage_steps.csv`);
+        const voltLines = voltRes.data.trim().split('\n');
+        // Skip header
+        const voltValues = voltLines.slice(1).map((line: string) => parseFloat(line.trim()));
+        const voltX = voltValues.map((_: number, idx: number) => idx);
+        
+        setVoltagePlotData({ x: voltX, y: voltValues });
+
+    } catch (error) {
+        console.error("Error fetching voltage steps for plots:", error);
     }
   };
 
@@ -234,7 +317,7 @@ function App() {
     if (shouldShow && !currentData && selectedEntry) {
       try {
         const response = await axios.get(`${API_URL}/api/data/${selectedEntry}/csv/${fileName}`);
-        const lines = response.data.split('\n');
+        const lines = response.data.trim().split('\n');
         const headers = lines[0].split(',');
         const rows = lines.slice(1).map((line: string) => line.split(','));
         dataSetter({ headers, rows });
@@ -370,8 +453,6 @@ function App() {
       );
     }
 
-    const images = ['swv_difference_plot.png', 'output_data.png', 'voltage_steps.png'];
-
     return (
       <main className="col-md-9 ms-sm-auto col-lg-10 px-md-4">
         <div className="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
@@ -379,16 +460,64 @@ function App() {
         </div>
 
         <div className="row">
-          {images.map(image => (
-            <div key={image} className="col-md-6 mb-4">
-              <div className="card">
-                <div className="card-header">{image}</div>
-                <div className="card-body">
-                  <img src={`${API_URL}/static/${selectedEntry}/${image}`} className="img-fluid plot-image" alt={image} />
-                </div>
+          {/* SWV Plot */}
+          <div className="col-12 mb-4">
+            <div className="card">
+              <div className="card-header">SWV Difference Plot</div>
+              <div className="card-body">
+                {swvPlotData ? (
+                  <InteractivePlot
+                    data={[{ x: swvPlotData.x, y: swvPlotData.y, type: 'scatter', mode: 'lines+markers', name: 'SWV Diff' }]}
+                    title="SWV Difference Plot"
+                    xLabel="Voltage (mV)"
+                    yLabel="Current Diff (uA)"
+                  />
+                ) : (
+                  <p>Loading or no data available for SWV plot...</p>
+                )}
               </div>
             </div>
-          ))}
+          </div>
+
+          {/* Raw Output Plot */}
+          <div className="col-md-6 mb-4">
+            <div className="card">
+              <div className="card-header">Output Data (Raw)</div>
+              <div className="card-body">
+                 {rawPlotData ? (
+                  <InteractivePlot
+                    data={[{ x: rawPlotData.x, y: rawPlotData.y, type: 'scatter', mode: 'lines', name: 'Raw Output' }]}
+                    title="Output Data"
+                    xLabel="Index"
+                    yLabel="Value"
+                    height={350}
+                  />
+                ) : (
+                  <p>Loading Raw Data...</p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Voltage Steps Plot */}
+          <div className="col-md-6 mb-4">
+            <div className="card">
+              <div className="card-header">Voltage Steps</div>
+              <div className="card-body">
+                {voltagePlotData ? (
+                  <InteractivePlot
+                    data={[{ x: voltagePlotData.x, y: voltagePlotData.y, type: 'scatter', mode: 'lines', name: 'Voltage Steps' }]}
+                    title="Voltage Steps"
+                    xLabel="Step"
+                    yLabel="Voltage (mV)"
+                    height={350}
+                  />
+                ) : (
+                   <p>Loading Voltage Steps...</p>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
 
         {renderTags()}
