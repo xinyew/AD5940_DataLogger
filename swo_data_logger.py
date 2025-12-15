@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 # --- Configuration ---
-COMMANDER_CMD = 'commander swo read --device EFR32BG27 --serialno 440332818'
+COMMANDER_CMD = 'commander swo read --device EFR32BG27 --serialno 801056273'
 OUTPUT_DIR = r'/Users/xinye/Desktop/AD5940_DataLogger/Data'
 
 # --- Plotting Configuration ---
