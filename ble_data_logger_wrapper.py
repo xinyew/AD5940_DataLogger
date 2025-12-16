@@ -45,7 +45,8 @@ def parse_line(line, state, data):
             'device_name': line.split(':', 1)[1].strip(),
             'params': {},
             'voltage_steps': [],
-            'output_data': []
+            'output_data': [],
+            'first_point_is_suspect': False
         })
         print(f"Found device: {data['device_name']}")
         sys.stdout.flush()
@@ -60,6 +61,7 @@ def parse_line(line, state, data):
         sys.stdout.flush()
         new_state = 'data_output'
         state = 'data_output' # Immediately update state for this line's processing
+        data['first_point_is_suspect'] = True
 
     if state == 'parsing_params':
         if line.startswith('Param_'):
@@ -93,11 +95,39 @@ def parse_line(line, state, data):
                     index = int(parts[0].split(':')[1].strip())
                     value = float(parts[1].strip())
                     data['output_data'].append((index, value))
+                    # Debug print to track data growth (optional, can be removed later)
+                    # if len(data['output_data']) % 50 == 0:
+                    #    print(f"DEBUG: Data count: {len(data['output_data'])}")
+                    #    sys.stdout.flush()
             except (ValueError, IndexError):
                 pass
+        elif line.startswith('Data Output:'):
+            # If we see an explicit 'Data Output:' header, it means any data we collected
+            # before this (via the 'missing header' logic) might be stale/stray packets.
+            # We should clear the buffer to ensure a clean start.
+            print("INFO: Explicit 'Data Output:' header detected in data_output state. Clearing pre-buffered data.")
+            sys.stdout.flush()
+            data['output_data'] = []
+            data['first_point_is_suspect'] = False
         elif "SqrWave Voltammetry test finished" in line:
             # This just marks the end of a chunk. We don't change state.
-            print("--- Finished receiving a data chunk. Continuing... ---")
+            current_len = len(data.get('output_data', []))
+            print(f"--- Finished receiving a data chunk. Data len: {current_len} ---")
+            sys.stdout.flush()
+
+            if data.get('output_data'):
+                 print("--- Saving complete run. ---")
+                 sys.stdout.flush()
+                 save_data_and_plots(data)
+                 # Reset data containers but keep device name
+                 data['params'] = {}
+                 data['voltage_steps'] = []
+                 data['output_data'] = []
+                 data['first_point_is_suspect'] = False
+                 # Reset state
+                 new_state = 'waiting_for_data'
+            else:
+                 print("--- No data to save. ---")
             sys.stdout.flush()
             
     return new_state
@@ -124,8 +154,8 @@ def generate_swv_plot(data, dir_name):
     output_data = list(data['output_data'])
     # Handle uneven number of data points by discarding the last one
     if len(output_data) % 2 != 0:
-        print(f"Warning: Received an odd number of data points ({len(output_data)}). Discarding the last point for plotting.")
-        output_data = output_data[:-1]
+        print(f"Warning: Received an odd number of data points ({len(output_data)}). Discarding the first point for plotting.")
+        output_data = output_data[1:]
 
     raw_values = [val for _, val in output_data]
     
@@ -163,6 +193,11 @@ def save_data_and_plots(data):
     if not data.get('output_data'):
         print("No output data collected, cannot save. Skipping.")
         return
+
+    # Handle suspect first data point (stray packet)
+    if data.get('first_point_is_suspect', False) and len(data['output_data']) > 1:
+        first_point = data['output_data'].pop(0)
+        print(f"Warning: Discarding suspect first data point (index: {first_point[0]}, value: {first_point[1]}).")
 
     timestamp = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
     run_dir_name = f"{timestamp}_{data['device_name']}"
@@ -267,8 +302,6 @@ async def main():
             print(f"Warning: Received non-UTF-8 data: {data}")
             return
             
-        print(chunk, end='', flush=True) # Mirror output to console
-        
         rx_buffer += chunk
         
         # Process complete lines
@@ -276,6 +309,8 @@ async def main():
             line, rx_buffer = rx_buffer.split('\n', 1)
             line = line.strip()
             if line:
+                print(line)
+                sys.stdout.flush()
                 context['state'] = parse_line(line, context['state'], context['data'])
 
     try:

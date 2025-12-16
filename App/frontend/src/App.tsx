@@ -181,7 +181,7 @@ function App() {
         
         let cleanValues = [...rawY];
         if (cleanValues.length % 2 !== 0) {
-            cleanValues.pop();
+            cleanValues.shift();
         }
 
         const differences: number[] = [];
