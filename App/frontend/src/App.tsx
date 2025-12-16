@@ -118,13 +118,10 @@ function App() {
     setSelectedEntry(entry);
     // Note: We DO NOT reset plot visibility states here to persist user preference.
     
-    // We do reset data containers to avoid showing old data while loading
-    setRawData(null);
-    setVoltageStepsData(null);
+    // Note: We DO NOT reset data states here to prevent the page from collapsing
+    // and resetting the scroll position while new data loads. The old data will
+    // persist for a moment until the new data replaces it.
     setComment('');
-    setSwvPlotData(null);
-    setRawPlotData(null);
-    setVoltagePlotData(null);
 
     let currentParams: Parameter[] = [];
 
