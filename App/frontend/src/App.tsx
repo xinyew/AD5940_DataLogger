@@ -40,6 +40,11 @@ function App() {
   const [filterTags, setFilterTags] = useState<string[]>([]);
   const [newTag, setNewTag] = useState('');
 
+  // Plot Visibility States (Persistent across entries)
+  const [showPlotSWV, setShowPlotSWV] = useState(true);
+  const [showPlotRaw, setShowPlotRaw] = useState(false);
+  const [showPlotVSteps, setShowPlotVSteps] = useState(false);
+
   // Plot Data States
   const [swvPlotData, setSwvPlotData] = useState<PlotData | null>(null);
   const [rawPlotData, setRawPlotData] = useState<PlotData | null>(null);
@@ -111,8 +116,9 @@ function App() {
 
   const handleEntryClick = async (entry: string) => {
     setSelectedEntry(entry);
-    setShowRawData(false);
-    setShowVoltageSteps(false);
+    // Note: We DO NOT reset plot visibility states here to persist user preference.
+    
+    // We do reset data containers to avoid showing old data while loading
     setRawData(null);
     setVoltageStepsData(null);
     setComment('');
@@ -481,67 +487,97 @@ function App() {
       <main className="col-md-9 ms-sm-auto col-lg-10 px-md-4">
         <div className="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
           <h1 className="h2">{selectedEntry}</h1>
+          <div className="btn-group me-2">
+            <button 
+                type="button" 
+                className={`btn btn-sm btn-outline-secondary ${showPlotSWV ? 'active' : ''}`}
+                onClick={() => setShowPlotSWV(!showPlotSWV)}
+            >
+                SWV
+            </button>
+            <button 
+                type="button" 
+                className={`btn btn-sm btn-outline-secondary ${showPlotRaw ? 'active' : ''}`}
+                onClick={() => setShowPlotRaw(!showPlotRaw)}
+            >
+                Raw
+            </button>
+            <button 
+                type="button" 
+                className={`btn btn-sm btn-outline-secondary ${showPlotVSteps ? 'active' : ''}`}
+                onClick={() => setShowPlotVSteps(!showPlotVSteps)}
+            >
+                VSteps
+            </button>
+          </div>
         </div>
 
         <div className="row">
           {/* SWV Plot */}
-          <div className="col-12 mb-4">
-            <div className="card">
-              <div className="card-header">SWV Difference Plot</div>
-              <div className="card-body">
-                {swvPlotData ? (
-                  <InteractivePlot
-                    data={[{ x: swvPlotData.x, y: swvPlotData.y, type: 'scatter', mode: 'lines+markers', name: 'SWV Diff' }]}
-                    title="SWV Difference Plot"
-                    xLabel="Voltage (mV)"
-                    yLabel="Current Diff (uA)"
-                  />
-                ) : (
-                  <p>Loading or no data available for SWV plot...</p>
-                )}
-              </div>
+          {showPlotSWV && (
+            <div className="col-12 mb-4">
+                <div className="card">
+                <div className="card-header">SWV Difference Plot</div>
+                <div className="card-body">
+                    {swvPlotData ? (
+                    <InteractivePlot
+                        data={[{ x: swvPlotData.x, y: swvPlotData.y, type: 'scatter', mode: 'lines+markers', name: 'SWV Diff' }]}
+                        title="SWV Difference Plot"
+                        xLabel="Voltage (mV)"
+                        yLabel="Current Diff (uA)"
+                        height={900}
+                    />
+                    ) : (
+                    <p>Loading or no data available for SWV plot...</p>
+                    )}
+                </div>
+                </div>
             </div>
-          </div>
+          )}
 
           {/* Raw Output Plot */}
-          <div className="col-md-6 mb-4">
-            <div className="card">
-              <div className="card-header">Output Data (Raw)</div>
-              <div className="card-body">
-                 {rawPlotData ? (
-                  <InteractivePlot
-                    data={[{ x: rawPlotData.x, y: rawPlotData.y, type: 'scatter', mode: 'lines', name: 'Raw Output' }]}
-                    title="Output Data"
-                    xLabel="Index"
-                    yLabel="Value"
-                    height={350}
-                  />
-                ) : (
-                  <p>Loading Raw Data...</p>
-                )}
-              </div>
+          {showPlotRaw && (
+            <div className="col-12 mb-4">
+                <div className="card">
+                <div className="card-header">Output Data (Raw)</div>
+                <div className="card-body">
+                    {rawPlotData ? (
+                    <InteractivePlot
+                        data={[{ x: rawPlotData.x, y: rawPlotData.y, type: 'scatter', mode: 'lines', name: 'Raw Output' }]}
+                        title="Output Data"
+                        xLabel="Index"
+                        yLabel="Value"
+                        height={900}
+                    />
+                    ) : (
+                    <p>Loading Raw Data...</p>
+                    )}
+                </div>
+                </div>
             </div>
-          </div>
+          )}
 
           {/* Voltage Steps Plot */}
-          <div className="col-md-6 mb-4">
-            <div className="card">
-              <div className="card-header">Voltage Steps</div>
-              <div className="card-body">
-                {voltagePlotData ? (
-                  <InteractivePlot
-                    data={[{ x: voltagePlotData.x, y: voltagePlotData.y, type: 'scatter', mode: 'lines', name: 'Voltage Steps' }]}
-                    title="Voltage Steps"
-                    xLabel="Step"
-                    yLabel="Voltage (mV)"
-                    height={350}
-                  />
-                ) : (
-                   <p>Loading Voltage Steps...</p>
-                )}
-              </div>
+          {showPlotVSteps && (
+            <div className="col-12 mb-4">
+                <div className="card">
+                <div className="card-header">Voltage Steps</div>
+                <div className="card-body">
+                    {voltagePlotData ? (
+                    <InteractivePlot
+                        data={[{ x: voltagePlotData.x, y: voltagePlotData.y, type: 'scatter', mode: 'lines', name: 'Voltage Steps' }]}
+                        title="Voltage Steps"
+                        xLabel="Step"
+                        yLabel="Voltage (mV)"
+                        height={900}
+                    />
+                    ) : (
+                    <p>Loading Voltage Steps...</p>
+                    )}
+                </div>
+                </div>
             </div>
-          </div>
+          )}
         </div>
 
         {renderTags()}
