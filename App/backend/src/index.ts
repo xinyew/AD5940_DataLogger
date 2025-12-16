@@ -3,6 +3,7 @@ import cors from 'cors';
 import fs from 'fs/promises';
 import path from 'path';
 import chokidar from 'chokidar';
+import { BleManager } from './bleManager';
 
 const app = express();
 const port = 4000;
@@ -11,6 +12,8 @@ const dataDir = '/Users/xinye/Desktop/AD5940_DataLogger/Data';
 app.use(cors());
 app.use(express.json()); // Middleware to parse JSON bodies
 app.use('/static', express.static(dataDir));
+
+const bleManager = new BleManager(dataDir);
 
 const getDataEntries = async () => {
   try {
@@ -26,6 +29,59 @@ const getDataEntries = async () => {
     return [];
   }
 };
+
+// --- BLE Logger Endpoints ---
+
+app.get('/api/devices', async (req, res) => {
+    try {
+        const devices = await bleManager.scanDevices();
+        res.json(devices);
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to scan devices' });
+    }
+});
+
+app.post('/api/connect', (req, res) => {
+    const { deviceName } = req.body;
+    if (!deviceName) {
+        res.status(400).json({ error: 'Device name is required' });
+        return;
+    }
+    try {
+        bleManager.connect(deviceName);
+        res.json({ success: true, message: 'Connection initiated' });
+    } catch (error: any) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/disconnect', (req, res) => {
+    try {
+        bleManager.disconnect();
+        res.json({ success: true, message: 'Disconnect initiated' });
+    } catch (error: any) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/trigger', (req, res) => {
+    try {
+        bleManager.triggerRead();
+        res.json({ success: true, message: 'Read triggered' });
+    } catch (error: any) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/logs', (req, res) => {
+    res.json(bleManager.getLogs());
+});
+
+app.get('/api/status', (req, res) => {
+    res.json(bleManager.getStatus());
+});
+
+// --- Existing Endpoints ---
 
 app.get('/api/data', async (req, res) => {
   const entries = await getDataEntries();

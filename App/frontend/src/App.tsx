@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import InteractivePlot from './components/InteractivePlot';
+import ConnectionManager from './components/ConnectionManager';
 
 const API_URL = 'http://localhost:4000';
 
@@ -554,6 +555,7 @@ function App() {
         <div className="row">
           <nav id="sidebarMenu" className="col-md-3 col-lg-2 d-md-block bg-light sidebar collapse">
             <div className="position-sticky pt-3 sidebar-content">
+              <ConnectionManager />
               {renderParametersSidebarCard()}
               {renderFilterSidebar()}
               <div className="card sidebar-card mt-3">
