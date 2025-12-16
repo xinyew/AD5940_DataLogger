@@ -328,6 +328,29 @@ function App() {
     }
   };
 
+  const formatDataCell = (value: string) => {
+    const num = parseFloat(value);
+    if (isNaN(num)) return value;
+    
+    // Check if it's likely an index (integer)
+    // If it parses to an integer (e.g. 1.255e+03 -> 1255), return it as a simple string "1255"
+    if (Number.isInteger(num)) return num.toString(); 
+    
+    // Use toFixed to avoid scientific notation for small numbers, remove trailing zeros
+    // But ensure at least one decimal digit if it was a float
+    let formatted = num.toFixed(10).replace(/\.?0+$/, "");
+    
+    // If it was a float (had decimals) but regex removed all, it might look like int.
+    // e.g. 1.0 -> 1. This is fine.
+    
+    // Special handling: if value is very small but not 0, toFixed might make it 0?
+    // 1e-11 -> 0.0000000000 -> 0. 
+    // If user wants "meaningful digits", maybe this is acceptable or we should keep 'e' for extremely small.
+    // The user logs showed 10 digits.
+    
+    return formatted;
+  };
+
   // --- RENDER FUNCTIONS ---
 
   const renderDataTable = (data: CsvData | null, title: string) => {
@@ -345,7 +368,7 @@ function App() {
             <tbody>
               {data.rows.map((row, index) => (
                 <tr key={index}>
-                  {row.map((cell, cellIndex) => <td key={cellIndex}>{cell}</td>)}
+                  {row.map((cell, cellIndex) => <td key={cellIndex}>{formatDataCell(cell)}</td>)}
                 </tr>
               ))}
             </tbody>
