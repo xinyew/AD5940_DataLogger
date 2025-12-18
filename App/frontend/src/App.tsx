@@ -562,7 +562,7 @@ function App() {
                 <div className="card-body">
                     {voltagePlotData ? (
                     <InteractivePlot
-                        data={[{ x: voltagePlotData.x, y: voltagePlotData.y, type: 'scatter', mode: 'lines', name: 'Voltage Steps' }]}
+                        data={[{ x: voltagePlotData.x, y: voltagePlotData.y, type: 'scatter', mode: 'lines', name: 'Voltage Steps', line: { shape: 'hv' } }]}
                         title="Voltage Steps"
                         xLabel="Step"
                         yLabel="Voltage (mV)"

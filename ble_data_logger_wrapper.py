@@ -221,7 +221,7 @@ def save_data_and_plots(data):
     if data['voltage_steps']:
         fig = plt.figure(figsize=PLOT_FIG_SIZE)
         ax = fig.add_axes(PLOT_AXES_GEOMETRY)
-        ax.plot(data['voltage_steps'])
+        ax.plot(data['voltage_steps'], drawstyle='steps-post')
         ax.set_title('Voltage Steps')
         ax.set_xlabel('Step')
         ax.set_ylabel('Voltage (mV)')

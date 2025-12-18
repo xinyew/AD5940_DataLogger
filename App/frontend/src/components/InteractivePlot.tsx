@@ -8,6 +8,7 @@ interface InteractivePlotProps {
     type?: 'scatter' | 'bar' | 'line';
     mode?: 'lines' | 'markers' | 'lines+markers';
     name?: string;
+    line?: { shape?: string; width?: number; color?: string; };
   }[];
   title: string;
   xLabel?: string;
