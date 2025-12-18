@@ -14,9 +14,11 @@ interface InteractivePlotProps {
   xLabel?: string;
   yLabel?: string;
   height?: number;
+  layout?: any;
+  onRelayout?: (event: any) => void;
 }
 
-const InteractivePlot: React.FC<InteractivePlotProps> = ({ data, title, xLabel, yLabel, height = 450 }) => {
+const InteractivePlot: React.FC<InteractivePlotProps> = ({ data, title, xLabel, yLabel, height = 450, layout = {}, onRelayout }) => {
   return (
     // @ts-ignore: react-plotly.js types can conflict with strict React types
     <Plot
@@ -29,7 +31,9 @@ const InteractivePlot: React.FC<InteractivePlotProps> = ({ data, title, xLabel, 
         height: height,
         margin: { l: 50, r: 30, t: 50, b: 50 },
         uirevision: 'true', // Preserves zoom/pan state across updates
+        ...layout // Merge external layout overrides (e.g. persisted ranges)
       }}
+      onRelayout={onRelayout}
       useResizeHandler={true}
       style={{ width: '100%', height: '100%' }}
       config={{

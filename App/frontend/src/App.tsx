@@ -52,6 +52,11 @@ function App() {
   const [rawPlotData, setRawPlotData] = useState<PlotData | null>(null);
   const [voltagePlotData, setVoltagePlotData] = useState<PlotData | null>(null);
 
+  // Plot Layout States (Persist Zoom/Pan)
+  const [swvLayout, setSwvLayout] = useState({});
+  const [rawLayout, setRawLayout] = useState({});
+  const [vStepsLayout, setVStepsLayout] = useState({});
+
   // Fetch all data and set up polling
   useEffect(() => {
     const fetchAllData = async () => {
@@ -542,6 +547,8 @@ function App() {
                         xLabel="Voltage (mV)"
                         yLabel="Current Diff (uA)"
                         height={900}
+                        layout={swvLayout}
+                        onRelayout={(e) => setSwvLayout(prev => ({ ...prev, ...e }))}
                     />
                     ) : (
                     <p>Loading or no data available for SWV plot...</p>
@@ -564,6 +571,8 @@ function App() {
                         xLabel="Index"
                         yLabel="Value"
                         height={900}
+                        layout={rawLayout}
+                        onRelayout={(e) => setRawLayout(prev => ({ ...prev, ...e }))}
                     />
                     ) : (
                     <p>Loading Raw Data...</p>
@@ -586,6 +595,8 @@ function App() {
                         xLabel="Step"
                         yLabel="Voltage (mV)"
                         height={900}
+                        layout={vStepsLayout}
+                        onRelayout={(e) => setVStepsLayout(prev => ({ ...prev, ...e }))}
                     />
                     ) : (
                     <p>Loading Voltage Steps...</p>
