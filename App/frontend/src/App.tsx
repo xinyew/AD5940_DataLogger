@@ -5,6 +5,19 @@ import ConnectionManager from './components/ConnectionManager';
 
 const API_URL = 'http://localhost:4000';
 
+const COLORS = [
+  '#1f77b4', // muted blue (default)
+  '#ff7f0e', // safety orange
+  '#2ca02c', // cooked asparagus green
+  '#d62728', // brick red
+  '#9467bd', // muted purple
+  '#8c564b', // chestnut brown
+  '#e377c2', // raspberry yogurt pink
+  '#7f7f7f', // middle gray
+  '#bcbd22', // curry yellow-green
+  '#17becf'  // blue-teal
+];
+
 type Parameter = {
   key: string;
   value: string;
@@ -20,6 +33,12 @@ type PlotData = {
   y: number[];
 };
 
+type EntryPlotSet = {
+    swv: PlotData | null;
+    raw: PlotData | null;
+    voltage: PlotData | null;
+}
+
 type Tags = {
   [entryName: string]: {
     auto: string[];
@@ -31,6 +50,11 @@ function App() {
   const [dataEntries, setDataEntries] = useState<string[]>([]);
   const [selectedEntry, setSelectedEntry] = useState<string | null>(null);
   const [parameters, setParameters] = useState<Parameter[]>([]);
+  
+  // Comparison State
+  const [comparedEntries, setComparedEntries] = useState<string[]>([]);
+  const [comparisonData, setComparisonData] = useState<{ [entry: string]: EntryPlotSet }>({});
+
   const [showRawData, setShowRawData] = useState(false);
   const [showVoltageSteps, setShowVoltageSteps] = useState(false);
   const [rawData, setRawData] = useState<CsvData | null>(null);
@@ -47,7 +71,7 @@ function App() {
   const [showPlotRaw, setShowPlotRaw] = useState(false);
   const [showPlotVSteps, setShowPlotVSteps] = useState(false);
 
-  // Plot Data States
+  // Primary Plot Data States (for selectedEntry)
   const [swvPlotData, setSwvPlotData] = useState<PlotData | null>(null);
   const [rawPlotData, setRawPlotData] = useState<PlotData | null>(null);
   const [voltagePlotData, setVoltagePlotData] = useState<PlotData | null>(null);
@@ -56,6 +80,101 @@ function App() {
   const [swvLayout, setSwvLayout] = useState({});
   const [rawLayout, setRawLayout] = useState({});
   const [vStepsLayout, setVStepsLayout] = useState({});
+
+  // Helper: Fetch Plot Data for ANY entry
+  const getPlotDataForEntry = async (entry: string): Promise<EntryPlotSet> => {
+      const result: EntryPlotSet = { swv: null, raw: null, voltage: null };
+      
+      try {
+          // 1. Fetch Parameters (needed for SWV calc)
+          const paramsRes = await axios.get(`${API_URL}/api/data/${entry}/parameters`);
+          const params = paramsRes.data.split('\n').map((line: string) => {
+              const [key, ...valueParts] = line.split(':');
+              return { key: key.trim().replace('Param_', ''), value: valueParts.join(':').trim() };
+          });
+
+          // 2. Fetch Raw Output
+          const outputRes = await axios.get(`${API_URL}/api/data/${entry}/csv/output_data.csv`);
+          const outputLines = outputRes.data.trim().split('\n');
+          const outputRows = outputLines.slice(1).map((line: string) => line.split(',').map(Number));
+          const rawX = outputRows.map((row: number[]) => row[0]);
+          const rawY = outputRows.map((row: number[]) => row[1]);
+          result.raw = { x: rawX, y: rawY };
+
+          // 3. Calculate SWV
+          const startVoltParam = params.find((p: any) => p.key === 'RampStartVolt')?.value;
+          const endVoltParam = params.find((p: any) => p.key === 'RampPeakVolt')?.value;
+
+          if (startVoltParam && endVoltParam && rawY.length > 0) {
+              const startVolt = parseFloat(startVoltParam);
+              const endVolt = parseFloat(endVoltParam);
+              let cleanValues = [...rawY];
+              if (cleanValues.length % 2 !== 0) cleanValues.shift();
+
+              const differences: number[] = [];
+              for (let i = 0; i < cleanValues.length; i += 2) {
+                  differences.push(cleanValues[i + 1] - cleanValues[i]);
+              }
+              const numPoints = differences.length;
+              const swvX: number[] = [];
+              if (numPoints > 0) {
+                  const scaleFactor = endVolt - startVolt;
+                  for (let i = 0; i < numPoints; i++) {
+                      swvX.push(startVolt + (i * scaleFactor / numPoints));
+                  }
+              }
+              result.swv = { x: swvX, y: differences };
+          }
+
+          // 4. Fetch Voltage Steps
+          const voltRes = await axios.get(`${API_URL}/api/data/${entry}/csv/voltage_steps.csv`);
+          const voltLines = voltRes.data.trim().split('\n');
+          const voltValues = voltLines.slice(1).map((line: string) => parseFloat(line.trim()));
+          const voltX = voltValues.map((_: number, idx: number) => idx);
+          result.voltage = { x: voltX, y: voltValues };
+
+      } catch (e) {
+          console.error(`Failed to fetch plot data for ${entry}`, e);
+      }
+      return result;
+  };
+
+  // Effect: Fetch data for compared entries
+  useEffect(() => {
+      const loadComparisonData = async () => {
+          const newData = { ...comparisonData };
+          let changed = false;
+          for (const entry of comparedEntries) {
+              if (!newData[entry]) {
+                  newData[entry] = await getPlotDataForEntry(entry);
+                  changed = true;
+              }
+          }
+          // Also remove entries no longer compared?
+          // For caching, maybe keep them? But memory...
+          // Let's keep for now, or strictly sync.
+          // Strict sync:
+          const currentKeys = Object.keys(newData);
+          for (const key of currentKeys) {
+              if (!comparedEntries.includes(key)) {
+                  // delete newData[key]; // Optional: clear cache
+                  // changed = true;
+              }
+          }
+          
+          if (changed) setComparisonData(newData);
+      };
+      
+      if (comparedEntries.length > 0) loadComparisonData();
+  }, [comparedEntries]);
+
+  // Toggle Compare
+  const toggleCompare = (entry: string) => {
+      setComparedEntries(prev => {
+          if (prev.includes(entry)) return prev.filter(e => e !== entry);
+          return [...prev, entry];
+      });
+  };
 
   // Fetch all data and set up polling
   useEffect(() => {
@@ -193,66 +312,11 @@ function App() {
     fetchAndProcessPlotData(entry, currentParams);
   };
 
-  const fetchAndProcessPlotData = async (entry: string, params: Parameter[]) => {
-    try {
-      // Fetch Raw Output Data
-      const outputRes = await axios.get(`${API_URL}/api/data/${entry}/csv/output_data.csv`);
-      const outputLines = outputRes.data.trim().split('\n');
-      // Skip header (Index,Value)
-      const outputRows = outputLines.slice(1).map((line: string) => line.split(',').map(Number));
-      
-      const rawX = outputRows.map((row: number[]) => row[0]);
-      const rawY = outputRows.map((row: number[]) => row[1]);
-      setRawPlotData({ x: rawX, y: rawY });
-
-      // Calculate SWV Data
-      // Needs Param_RampStartVolt and Param_RampPeakVolt
-      const startVoltParam = params.find(p => p.key === 'RampStartVolt')?.value;
-      const endVoltParam = params.find(p => p.key === 'RampPeakVolt')?.value;
-
-      if (startVoltParam && endVoltParam && rawY.length > 0) {
-        const startVolt = parseFloat(startVoltParam);
-        const endVolt = parseFloat(endVoltParam);
-        
-        let cleanValues = [...rawY];
-        if (cleanValues.length % 2 !== 0) {
-            cleanValues.shift();
-        }
-
-        const differences: number[] = [];
-        for (let i = 0; i < cleanValues.length; i += 2) {
-            differences.push(cleanValues[i + 1] - cleanValues[i]);
-        }
-        
-        const numPoints = differences.length;
-        const swvX: number[] = [];
-        if (numPoints > 0) {
-            const scaleFactor = endVolt - startVolt;
-            for (let i = 0; i < numPoints; i++) {
-                swvX.push(startVolt + (i * scaleFactor / numPoints));
-            }
-        }
-
-        setSwvPlotData({ x: swvX, y: differences });
-      }
-
-    } catch (error) {
-      console.error("Error fetching or processing output data for plots:", error);
-    }
-
-    try {
-        // Fetch Voltage Steps
-        const voltRes = await axios.get(`${API_URL}/api/data/${entry}/csv/voltage_steps.csv`);
-        const voltLines = voltRes.data.trim().split('\n');
-        // Skip header
-        const voltValues = voltLines.slice(1).map((line: string) => parseFloat(line.trim()));
-        const voltX = voltValues.map((_: number, idx: number) => idx);
-        
-        setVoltagePlotData({ x: voltX, y: voltValues });
-
-    } catch (error) {
-        console.error("Error fetching voltage steps for plots:", error);
-    }
+  const fetchAndProcessPlotData = async (entry: string, _params: Parameter[]) => {
+    const data = await getPlotDataForEntry(entry);
+    setRawPlotData(data.raw);
+    setSwvPlotData(data.swv);
+    setVoltagePlotData(data.voltage);
   };
 
   const generateAutoTags = (entry: string, params: Parameter[]) => {
@@ -492,6 +556,53 @@ function App() {
     );
   };
 
+  const getTraces = (type: 'swv' | 'raw' | 'voltage') => {
+      const traces: any[] = [];
+      
+      // Base Trace (Selected Entry)
+      let baseData: PlotData | null = null;
+      let title = selectedEntry || 'Current';
+      if (type === 'swv') baseData = swvPlotData;
+      else if (type === 'raw') baseData = rawPlotData;
+      else if (type === 'voltage') baseData = voltagePlotData;
+
+      if (baseData) {
+          traces.push({
+              x: baseData.x,
+              y: baseData.y,
+              type: 'scatter',
+              mode: type === 'swv' ? 'lines+markers' : 'lines',
+              name: title,
+              line: { color: COLORS[0], shape: type === 'voltage' ? 'hv' : undefined }
+          });
+      }
+
+      // Comparison Traces
+      comparedEntries.forEach((entry, idx) => {
+          if (entry === selectedEntry) return; // Don't duplicate
+          const entryData = comparisonData[entry];
+          if (!entryData) return;
+
+          let data: PlotData | null = null;
+          if (type === 'swv') data = entryData.swv;
+          else if (type === 'raw') data = entryData.raw;
+          else if (type === 'voltage') data = entryData.voltage;
+
+          if (data) {
+              traces.push({
+                  x: data.x,
+                  y: data.y,
+                  type: 'scatter',
+                  mode: type === 'swv' ? 'lines+markers' : 'lines',
+                  name: entry,
+                  line: { color: COLORS[(idx + 1) % COLORS.length], shape: type === 'voltage' ? 'hv' : undefined }
+              });
+          }
+      });
+
+      return traces;
+  };
+
   const renderDetailView = () => {
     if (!selectedEntry) {
       return (
@@ -542,7 +653,7 @@ function App() {
                 <div className="card-body">
                     {swvPlotData ? (
                     <InteractivePlot
-                        data={[{ x: swvPlotData.x, y: swvPlotData.y, type: 'scatter', mode: 'lines+markers', name: 'SWV Diff' }]}
+                        data={getTraces('swv')}
                         title="SWV Difference Plot"
                         xLabel="Voltage (mV)"
                         yLabel="Current Diff (uA)"
@@ -566,7 +677,7 @@ function App() {
                 <div className="card-body">
                     {rawPlotData ? (
                     <InteractivePlot
-                        data={[{ x: rawPlotData.x, y: rawPlotData.y, type: 'scatter', mode: 'lines', name: 'Raw Output' }]}
+                        data={getTraces('raw')}
                         title="Output Data"
                         xLabel="Index"
                         yLabel="Value"
@@ -590,7 +701,7 @@ function App() {
                 <div className="card-body">
                     {voltagePlotData ? (
                     <InteractivePlot
-                        data={[{ x: voltagePlotData.x, y: voltagePlotData.y, type: 'scatter', mode: 'lines', name: 'Voltage Steps', line: { shape: 'hv' } }]}
+                        data={getTraces('voltage')}
                         title="Voltage Steps"
                         xLabel="Step"
                         yLabel="Voltage (mV)"
@@ -650,23 +761,45 @@ function App() {
                 </div>
                 <div className="card-body">
                   <ul className="nav flex-column">
-                    {filteredEntries.map(entry => (
+                    {filteredEntries.map(entry => {
+                        const isSelected = entry === selectedEntry;
+                        const isCompared = comparedEntries.includes(entry);
+                        const compareIndex = comparedEntries.indexOf(entry);
+                        // Selected is index 0 color (Blue). Comparisons start at index 1 color.
+                        // We use index+1 for comparison colors to avoid clashing with selected blue.
+                        const compareColor = isSelected 
+                            ? COLORS[0] 
+                            : (isCompared ? COLORS[(compareIndex + 1) % COLORS.length] : undefined);
+
+                        return (
                       <li key={entry} className="nav-item d-flex justify-content-between align-items-center">
                         <a
-                          className={`nav-link ${selectedEntry === entry ? 'active' : ''}`}
+                          className={`nav-link ${isSelected ? 'active' : ''}`}
                           href="#"
                           onClick={(e) => {
                             e.preventDefault();
                             handleEntryClick(entry);
                           }}
+                          style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '160px' }}
+                          title={entry}
                         >
                           {entry}
                         </a>
-                        <button className="btn btn-sm btn-outline-danger" onClick={() => handleDeleteEntry(entry)}>
-                          &times;
-                        </button>
+                        <div className="btn-group btn-group-sm">
+                            <button 
+                                className={`btn ${isSelected || isCompared ? '' : 'btn-outline-secondary'}`}
+                                style={isSelected || isCompared ? { backgroundColor: compareColor, borderColor: compareColor, color: 'white' } : {}}
+                                onClick={() => isSelected ? null : toggleCompare(entry)}
+                                title={isSelected ? "Current Entry (Base)" : (isCompared ? "Remove from comparison" : "Add to comparison")}
+                            >
+                                {isSelected || isCompared ? '☑' : '☐'}
+                            </button>
+                            <button className="btn btn-outline-danger" onClick={() => handleDeleteEntry(entry)}>
+                            &times;
+                            </button>
+                        </div>
                       </li>
-                    ))}
+                    );})}
                   </ul>
                 </div>
               </div>
