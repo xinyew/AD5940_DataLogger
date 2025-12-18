@@ -99,7 +99,12 @@ function App() {
           const outputRows = outputLines.slice(1).map((line: string) => line.split(',').map(Number));
           const rawX = outputRows.map((row: number[]) => row[0]);
           const rawY = outputRows.map((row: number[]) => row[1]);
-          result.raw = { x: rawX, y: rawY };
+          
+          // Shift X-axis to start at 0
+          const minX = rawX.length > 0 ? rawX[0] : 0;
+          const shiftedX = rawX.map((x: number) => x - minX);
+          
+          result.raw = { x: shiftedX, y: rawY };
 
           // 3. Calculate SWV
           const startVoltParam = params.find((p: any) => p.key === 'RampStartVolt')?.value;
