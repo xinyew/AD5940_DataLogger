@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import InteractivePlot from './components/InteractivePlot';
 import ConnectionManager from './components/ConnectionManager';
@@ -39,6 +39,8 @@ function App() {
   const [tags, setTags] = useState<Tags>({});
   const [filterTags, setFilterTags] = useState<string[]>([]);
   const [newTag, setNewTag] = useState('');
+  const [saveStatus, setSaveStatus] = useState<string>('');
+  const lastSavedComment = useRef<string | null>(null);
 
   // Plot Visibility States (Persistent across entries)
   const [showPlotSWV, setShowPlotSWV] = useState(true);
@@ -114,6 +116,27 @@ function App() {
     }
   }, [dataEntries, selectedEntry]);
 
+  // Auto-save comment effect
+  useEffect(() => {
+    if (!selectedEntry || lastSavedComment.current === null || comment === lastSavedComment.current) {
+        return;
+    }
+
+    setSaveStatus('Saving...');
+    const timer = setTimeout(async () => {
+        try {
+            await axios.post(`${API_URL}/api/data/${selectedEntry}/comment`, { comment });
+            setSaveStatus('Saved');
+            lastSavedComment.current = comment;
+        } catch (error) {
+            console.error('Error saving comment:', error);
+            setSaveStatus('Error saving');
+        }
+    }, 1000);
+
+    return () => clearTimeout(timer);
+  }, [comment, selectedEntry]);
+
   const handleEntryClick = async (entry: string) => {
     setSelectedEntry(entry);
     // Note: We DO NOT reset plot visibility states here to persist user preference.
@@ -122,6 +145,8 @@ function App() {
     // and resetting the scroll position while new data loads. The old data will
     // persist for a moment until the new data replaces it.
     setComment('');
+    setSaveStatus('');
+    lastSavedComment.current = null; // Reset ref so we don't auto-save immediately
 
     let currentParams: Parameter[] = [];
 
@@ -153,8 +178,10 @@ function App() {
     try {
       const commentResponse = await axios.get(`${API_URL}/api/data/${entry}/comment`);
       setComment(commentResponse.data.comment);
+      lastSavedComment.current = commentResponse.data.comment;
     } catch (error) {
       console.error('Error fetching comment:', error);
+      lastSavedComment.current = ''; // Assume empty if fail
     }
 
     // Fetch and process data for plots
@@ -297,18 +324,6 @@ function App() {
     }
   };
 
-  const handleSaveComment = async () => {
-    if (selectedEntry) {
-      try {
-        await axios.post(`${API_URL}/api/data/${selectedEntry}/comment`, { comment });
-        alert('Comment saved!');
-      } catch (error) {
-        console.error('Error saving comment:', error);
-        alert('Failed to save comment.');
-      }
-    }
-  };
-
   const handleToggleData = async (dataType: 'rawData' | 'voltageSteps') => {
     const shouldShow = dataType === 'rawData' ? !showRawData : !showVoltageSteps;
     const setter = dataType === 'rawData' ? setShowRawData : setShowVoltageSteps;
@@ -391,7 +406,11 @@ function App() {
           value={comment}
           onChange={(e) => setComment(e.target.value)}
         ></textarea>
-        <button className="btn btn-primary mt-2" onClick={handleSaveComment}>Save Comment</button>
+        <div className="mt-2">
+            <small className={`text-muted ${saveStatus === 'Error saving' ? 'text-danger' : saveStatus === 'Saved' ? 'text-success' : ''}`}>
+                {saveStatus}
+            </small>
+        </div>
       </div>
     </div>
   );
