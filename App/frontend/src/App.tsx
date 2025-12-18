@@ -774,18 +774,18 @@ function App() {
                         return (
                       <li key={entry} className="nav-item d-flex justify-content-between align-items-center">
                         <a
-                          className={`nav-link ${isSelected ? 'active' : ''}`}
+                          className={`nav-link flex-grow-1 ${isSelected ? 'active' : ''}`}
                           href="#"
                           onClick={(e) => {
                             e.preventDefault();
                             handleEntryClick(entry);
                           }}
-                          style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '160px' }}
+                          style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginRight: '8px' }}
                           title={entry}
                         >
                           {entry}
                         </a>
-                        <div className="btn-group btn-group-sm">
+                        <div className="btn-group btn-group-sm flex-shrink-0">
                             <button 
                                 className={`btn ${isSelected || isCompared ? '' : 'btn-outline-secondary'}`}
                                 style={isSelected || isCompared ? { backgroundColor: compareColor, borderColor: compareColor, color: 'white' } : {}}
