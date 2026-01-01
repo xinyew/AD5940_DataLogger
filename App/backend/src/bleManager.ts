@@ -5,20 +5,22 @@ import { EventEmitter } from 'events';
 export class BleManager extends EventEmitter {
     private process: ChildProcess | null = null;
     private connectedDevice: string | null = null;
-    private rootDir: string;
+    private projectRoot: string;
+    private dataDir: string;
     private logBuffer: string[] = [];
 
-    constructor(rootDir: string) {
+    constructor(dataDir: string) {
         super();
-        // rootDir passed from index.ts is likely the 'Data' dir, but we need the project root where python scripts are.
+        this.dataDir = dataDir;
+        console.log('BleManager initialized with dataDir:', this.dataDir);
         // Assuming dataDir is .../AD5940_DataLogger/Data, project root is .../AD5940_DataLogger
-        this.rootDir = path.resolve(rootDir, '..');
+        this.projectRoot = path.resolve(dataDir, '..');
     }
 
     public async scanDevices(): Promise<string[]> {
         return new Promise((resolve, reject) => {
-            const pythonPath = path.join(this.rootDir, 'venv/bin/python3');
-            const scriptPath = path.join(this.rootDir, 'scan_ble_devices.py');
+            const pythonPath = path.join(this.projectRoot, 'venv/bin/python3');
+            const scriptPath = path.join(this.projectRoot, 'scripts', 'scan_ble_devices.py');
             const cmd = spawn(pythonPath, [scriptPath]);
             let stdout = '';
             let stderr = '';
@@ -54,10 +56,11 @@ export class BleManager extends EventEmitter {
         }
 
         this.logBuffer = []; // Clear previous logs
-        const pythonPath = path.join(this.rootDir, 'venv/bin/python3');
-        const scriptPath = path.join(this.rootDir, 'ble_data_logger_wrapper.py');
+        const pythonPath = path.join(this.projectRoot, 'venv/bin/python3');
+        const scriptPath = path.join(this.projectRoot, 'scripts', 'ble_data_logger_wrapper.py');
         console.log(`Spawning BLE wrapper for device: ${deviceName}`);
-        this.process = spawn(pythonPath, [scriptPath, deviceName], {
+        console.log('Spawning BLE wrapper with args:', [scriptPath, deviceName, this.dataDir]);
+        this.process = spawn(pythonPath, [scriptPath, deviceName, this.dataDir], {
             stdio: ['pipe', 'pipe', 'pipe'] // Allow stdin writing
         });
         

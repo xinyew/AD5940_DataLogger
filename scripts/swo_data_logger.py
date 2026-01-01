@@ -1,12 +1,13 @@
 import subprocess
 import datetime
 import os
+import sys
 import matplotlib.pyplot as plt
 import numpy as np
 
 # --- Configuration ---
 COMMANDER_CMD = 'commander swo read --device EFR32BG27 --serialno 801056273'
-OUTPUT_DIR = r'/Users/xinye/Desktop/AD5940_DataLogger/Data'
+OUTPUT_DIR = 'Data'
 
 # --- Plotting Configuration ---
 PLOT_FIG_SIZE = (12, 7)
@@ -188,6 +189,11 @@ def save_data_and_plots(data):
 
 def main():
     """Main function to run the data logger."""
+    global OUTPUT_DIR
+    if len(sys.argv) > 1:
+        OUTPUT_DIR = sys.argv[1]
+        print(f"Output directory set to: {OUTPUT_DIR}")
+
     if not os.path.exists(OUTPUT_DIR):
         os.makedirs(OUTPUT_DIR)
         print(f"Created base output directory: {OUTPUT_DIR}")

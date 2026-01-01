@@ -7,7 +7,9 @@ import { BleManager } from './bleManager';
 
 const app = express();
 const port = 4000;
-const dataDir = '/Users/xinye/Desktop/AD5940_DataLogger/Data';
+// Resolve project root from src/index.ts -> src -> backend -> App -> Root
+const projectRoot = path.resolve(__dirname, '../../..');
+const dataDir = path.join(projectRoot, 'Data');
 
 app.use(cors());
 app.use(express.json()); // Middleware to parse JSON bodies

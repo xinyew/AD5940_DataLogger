@@ -14,8 +14,8 @@ MEASUREMENT_DATA_CHARACTERISTIC_UUID = "dfe54d26-a9d5-4398-acf5-2585b41dd956"
 # The name prefix to search for
 DEVICE_NAME_PREFIX = "THOR"
 
-# Output directory (Same as original script)
-OUTPUT_DIR = r'/Users/xinye/Desktop/AD5940_DataLogger/Data'
+# Output directory (Default)
+OUTPUT_DIR = 'Data'
 
 # --- Plotting Configuration ---
 PLOT_FIG_SIZE = (12, 7)
@@ -247,6 +247,13 @@ def save_data_and_plots(data):
 
 async def main():
     """Main function to run the BLE data logger."""
+    print(f"DEBUG: sys.argv: {sys.argv}")
+    sys.stdout.flush()
+    global OUTPUT_DIR
+    if len(sys.argv) > 2:
+        OUTPUT_DIR = sys.argv[2]
+        print(f"Output directory set to: {OUTPUT_DIR}")
+    
     if not os.path.exists(OUTPUT_DIR):
         os.makedirs(OUTPUT_DIR)
         print(f"Created base output directory: {OUTPUT_DIR}")
