@@ -18,6 +18,11 @@ const COLORS = [
   '#17becf'  // blue-teal
 ];
 
+function shadeColor(color: string, percent: number) {
+    var f=parseInt(color.slice(1),16),t=percent<0?0:255,p=percent<0?percent*-1:percent,R=f>>16,G=f>>8&0x00FF,B=f&0x0000FF;
+    return "#"+(0x1000000+(Math.round((t-R)*p)+R)*0x10000+(Math.round((t-G)*p)+G)*0x100+(Math.round((t-B)*p)+B)).toString(16).slice(1);
+}
+
 type Parameter = {
   key: string;
   value: string;
@@ -35,6 +40,8 @@ type PlotData = {
 
 type EntryPlotSet = {
     swv: PlotData | null;
+    swvOdd: PlotData | null;
+    swvEven: PlotData | null;
     raw: PlotData | null;
     voltage: PlotData | null;
 }
@@ -70,9 +77,14 @@ function App() {
   const [showPlotSWV, setShowPlotSWV] = useState(true);
   const [showPlotRaw, setShowPlotRaw] = useState(false);
   const [showPlotVSteps, setShowPlotVSteps] = useState(false);
+  
+  // SWV Sub-line Visibility
+  const [swvVisibility, setSwvVisibility] = useState({ diff: true, odd: false, even: false });
 
   // Primary Plot Data States (for selectedEntry)
   const [swvPlotData, setSwvPlotData] = useState<PlotData | null>(null);
+  const [swvOddData, setSwvOddData] = useState<PlotData | null>(null);
+  const [swvEvenData, setSwvEvenData] = useState<PlotData | null>(null);
   const [rawPlotData, setRawPlotData] = useState<PlotData | null>(null);
   const [voltagePlotData, setVoltagePlotData] = useState<PlotData | null>(null);
 
@@ -83,7 +95,7 @@ function App() {
 
   // Helper: Fetch Plot Data for ANY entry
   const getPlotDataForEntry = async (entry: string): Promise<EntryPlotSet> => {
-      const result: EntryPlotSet = { swv: null, raw: null, voltage: null };
+      const result: EntryPlotSet = { swv: null, swvOdd: null, swvEven: null, raw: null, voltage: null };
       
       try {
           // 1. Fetch Parameters (needed for SWV calc)
@@ -117,8 +129,15 @@ function App() {
               if (cleanValues.length % 2 !== 0) cleanValues.shift();
 
               const differences: number[] = [];
+              const odds: number[] = [];
+              const evens: number[] = [];
+
               for (let i = 0; i < cleanValues.length; i += 2) {
-                  differences.push(cleanValues[i + 1] - cleanValues[i]);
+                  const evenVal = cleanValues[i];
+                  const oddVal = cleanValues[i + 1];
+                  differences.push(oddVal - evenVal);
+                  evens.push(evenVal);
+                  odds.push(oddVal);
               }
               const numPoints = differences.length;
               const swvX: number[] = [];
@@ -129,6 +148,8 @@ function App() {
                   }
               }
               result.swv = { x: swvX, y: differences };
+              result.swvOdd = { x: swvX, y: odds };
+              result.swvEven = { x: swvX, y: evens };
           }
 
           // 4. Fetch Voltage Steps
@@ -155,10 +176,6 @@ function App() {
                   changed = true;
               }
           }
-          // Also remove entries no longer compared?
-          // For caching, maybe keep them? But memory...
-          // Let's keep for now, or strictly sync.
-          // Strict sync:
           const currentKeys = Object.keys(newData);
           for (const key of currentKeys) {
               if (!comparedEntries.includes(key)) {
@@ -268,11 +285,6 @@ function App() {
 
   const handleEntryClick = async (entry: string) => {
     setSelectedEntry(entry);
-    // Note: We DO NOT reset plot visibility states here to persist user preference.
-    
-    // Note: We DO NOT reset data states here to prevent the page from collapsing
-    // and resetting the scroll position while new data loads. The old data will
-    // persist for a moment until the new data replaces it.
     setComment('');
     setSaveStatus('');
     lastSavedComment.current = null; // Reset ref so we don't auto-save immediately
@@ -321,6 +333,8 @@ function App() {
     const data = await getPlotDataForEntry(entry);
     setRawPlotData(data.raw);
     setSwvPlotData(data.swv);
+    setSwvOddData(data.swvOdd);
+    setSwvEvenData(data.swvEven);
     setVoltagePlotData(data.voltage);
   };
 
@@ -431,14 +445,6 @@ function App() {
     // Use toFixed to avoid scientific notation for small numbers, remove trailing zeros
     // But ensure at least one decimal digit if it was a float
     let formatted = num.toFixed(10).replace(/\.?0+$/, "");
-    
-    // If it was a float (had decimals) but regex removed all, it might look like int.
-    // e.g. 1.0 -> 1. This is fine.
-    
-    // Special handling: if value is very small but not 0, toFixed might make it 0?
-    // 1e-11 -> 0.0000000000 -> 0. 
-    // If user wants "meaningful digits", maybe this is acceptable or we should keep 'e' for extremely small.
-    // The user logs showed 10 digits.
     
     return formatted;
   };
@@ -564,44 +570,111 @@ function App() {
   const getTraces = (type: 'swv' | 'raw' | 'voltage') => {
       const traces: any[] = [];
       
-      // Base Trace (Selected Entry)
       let baseData: PlotData | null = null;
       let title = selectedEntry || 'Current';
-      if (type === 'swv') baseData = swvPlotData;
-      else if (type === 'raw') baseData = rawPlotData;
-      else if (type === 'voltage') baseData = voltagePlotData;
+      
+      if (type === 'swv') {
+          if (swvVisibility.diff && swvPlotData) {
+              traces.push({
+                  x: swvPlotData.x,
+                  y: swvPlotData.y,
+                  type: 'scatter',
+                  mode: 'lines+markers',
+                  name: `${title} (Diff)`,
+                  line: { color: COLORS[0] }
+              });
+          }
+          if (swvVisibility.odd && swvOddData) {
+              traces.push({
+                  x: swvOddData.x,
+                  y: swvOddData.y,
+                  type: 'scatter',
+                  mode: 'lines',
+                  name: `${title} (Odd)`,
+                  line: { color: shadeColor(COLORS[0], 0.4), width: 1 }
+              });
+          }
+          if (swvVisibility.even && swvEvenData) {
+              traces.push({
+                  x: swvEvenData.x,
+                  y: swvEvenData.y,
+                  type: 'scatter',
+                  mode: 'lines',
+                  name: `${title} (Even)`,
+                  line: { color: shadeColor(COLORS[0], -0.4), width: 1 }
+              });
+          }
+      } else {
+          // ... Raw/Voltage logic ...
+          if (type === 'raw') baseData = rawPlotData;
+          else if (type === 'voltage') baseData = voltagePlotData;
 
-      if (baseData) {
-          traces.push({
-              x: baseData.x,
-              y: baseData.y,
-              type: 'scatter',
-              mode: type === 'swv' ? 'lines+markers' : 'lines',
-              name: title,
-              line: { color: COLORS[0], shape: type === 'voltage' ? 'hv' : undefined }
-          });
+          if (baseData) {
+              traces.push({
+                  x: baseData.x,
+                  y: baseData.y,
+                  type: 'scatter',
+                  mode: 'lines',
+                  name: title,
+                  line: { color: COLORS[0], shape: type === 'voltage' ? 'hv' : undefined }
+              });
+          }
       }
 
       // Comparison Traces
       comparedEntries.forEach((entry, idx) => {
-          if (entry === selectedEntry) return; // Don't duplicate
+          if (entry === selectedEntry) return; 
           const entryData = comparisonData[entry];
           if (!entryData) return;
 
-          let data: PlotData | null = null;
-          if (type === 'swv') data = entryData.swv;
-          else if (type === 'raw') data = entryData.raw;
-          else if (type === 'voltage') data = entryData.voltage;
+          const color = COLORS[(idx + 1) % COLORS.length];
 
-          if (data) {
-              traces.push({
-                  x: data.x,
-                  y: data.y,
-                  type: 'scatter',
-                  mode: type === 'swv' ? 'lines+markers' : 'lines',
-                  name: entry,
-                  line: { color: COLORS[(idx + 1) % COLORS.length], shape: type === 'voltage' ? 'hv' : undefined }
-              });
+          if (type === 'swv') {
+              if (entryData.swv && swvVisibility.diff) {
+                  traces.push({
+                      x: entryData.swv.x,
+                      y: entryData.swv.y,
+                      type: 'scatter',
+                      mode: 'lines+markers',
+                      name: `${entry} (Diff)`,
+                      line: { color: color }
+                  });
+              }
+              if (entryData.swvOdd && swvVisibility.odd) {
+                  traces.push({
+                      x: entryData.swvOdd.x,
+                      y: entryData.swvOdd.y,
+                      type: 'scatter',
+                      mode: 'lines',
+                      name: `${entry} (Odd)`,
+                      line: { color: shadeColor(color, 0.4), width: 1 }
+                  });
+              }
+              if (entryData.swvEven && swvVisibility.even) {
+                  traces.push({
+                      x: entryData.swvEven.x,
+                      y: entryData.swvEven.y,
+                      type: 'scatter',
+                      mode: 'lines',
+                      name: `${entry} (Even)`,
+                      line: { color: shadeColor(color, -0.4), width: 1 }
+                  });
+              }
+          } else {
+              let data: PlotData | null = null;
+              if (type === 'raw') data = entryData.raw;
+              else if (type === 'voltage') data = entryData.voltage;
+              
+              if (data) {
+                  traces.push({
+                      x: data.x,
+                      y: data.y,
+                      type: 'scatter',
+                      mode: 'lines',
+                      name: entry,
+                      line: { color: color, shape: type === 'voltage' ? 'hv' : undefined }
+                  });
+              }
           }
       });
 
@@ -654,14 +727,37 @@ function App() {
           {showPlotSWV && (
             <div className="col-12 mb-4">
                 <div className="card">
-                <div className="card-header">SWV Difference Plot</div>
+                <div className="card-header d-flex justify-content-between align-items-center">
+                    <span>SWV Difference Plot</span>
+                    <div className="btn-group btn-group-sm">
+                        <div className="form-check form-check-inline m-0 me-2">
+                            <input className="form-check-input" type="checkbox" id="checkDiff" 
+                                checked={swvVisibility.diff} 
+                                onChange={(e) => setSwvVisibility(prev => ({...prev, diff: e.target.checked}))} />
+                            <label className="form-check-label" htmlFor="checkDiff">Diff</label>
+                        </div>
+                        <div className="form-check form-check-inline m-0 me-2">
+                            <input className="form-check-input" type="checkbox" id="checkOdd" 
+                                checked={swvVisibility.odd} 
+                                onChange={(e) => setSwvVisibility(prev => ({...prev, odd: e.target.checked}))} />
+                            <label className="form-check-label" htmlFor="checkOdd">Odd</label>
+                        </div>
+                        <div className="form-check form-check-inline m-0">
+                            <input className="form-check-input" type="checkbox" id="checkEven" 
+                                checked={swvVisibility.even} 
+                                onChange={(e) => setSwvVisibility(prev => ({...prev, even: e.target.checked}))} />
+                            <label className="form-check-label" htmlFor="checkEven">Even</label>
+                        </div>
+                    </div>
+                </div>
                 <div className="card-body">
-                    {swvPlotData ? (
+                    {/* Check if ANY data is available to display */}
+                    {(swvPlotData || (comparedEntries.length > 0)) ? (
                     <InteractivePlot
                         data={getTraces('swv')}
-                        title="SWV Difference Plot"
+                        title="SWV Plot"
                         xLabel="Voltage (mV)"
-                        yLabel="Current Diff (uA)"
+                        yLabel="Current (uA)"
                         height={900}
                         layout={swvLayout}
                         onRelayout={(e) => setSwvLayout(prev => ({ ...prev, ...e }))}
@@ -730,7 +826,7 @@ function App() {
           <button className="btn btn-secondary me-2" onClick={() => handleToggleData('rawData')}>
             {showRawData ? 'Hide' : 'Show'} Raw Data
           </button>
-          <button className="btn btn-secondary" onClick={() => handleToggleData('voltageSteps')}>
+          <button className="btn btn-secondary" onClick={() => handleToggleData('voltageSteps')}> 
             {showVoltageSteps ? 'Hide' : 'Show'} Voltage Steps
           </button>
         </div>
