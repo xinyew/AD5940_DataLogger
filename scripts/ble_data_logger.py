@@ -2,7 +2,6 @@ import asyncio
 import datetime
 import os
 import sys
-import matplotlib.pyplot as plt
 import numpy as np
 from bleak import BleakScanner, BleakClient
 
@@ -14,13 +13,8 @@ MEASUREMENT_DATA_CHARACTERISTIC_UUID = "dfe54d26-a9d5-4398-acf5-2585b41dd956"
 # The name prefix to search for
 DEVICE_NAME_PREFIX = "THOR"
 
-# Output directory (Same as original script)
-OUTPUT_DIR = r'/Users/xinye/Desktop/AD5940_DataLogger/Data'
-
-# --- Plotting Configuration ---
-PLOT_FIG_SIZE = (12, 7)
-PLOT_AXES_GEOMETRY = [0.1, 0.1, 0.8, 0.8]
-# ---------------------
+# Output directory (Default)
+OUTPUT_DIR = 'Data'
 
 # Global buffer for reassembling fragmented BLE packets
 rx_buffer = ""
@@ -94,60 +88,8 @@ def parse_line(line, state, data):
             
     return new_state
 
-def generate_swv_plot(data, dir_name):
-    """Generates and saves the SWV difference plot."""
-    print("Attempting to generate SWV difference plot...")
-    try:
-        begin_volt_str = data['params'].get('Param_RampStartVolt')
-        end_volt_str = data['params'].get('Param_RampPeakVolt')
-
-        if begin_volt_str is None or end_volt_str is None:
-            print("Warning: Could not get voltage range for SWV plot. 'RampStartVolt' or 'RampPeakVolt' not found.")
-            return
-
-        begin_volt = float(begin_volt_str)
-        end_volt = float(end_volt_str)
-
-    except (ValueError) as e:
-        print(f"Warning: Could not parse voltage range for SWV plot. Error: {e}")
-        return
-
-    # Copy data to avoid modifying the original list in `data`
-    output_data = list(data['output_data'])
-    # Handle uneven number of data points by discarding the last one
-    if len(output_data) % 2 != 0:
-        print(f"Warning: Received an odd number of data points ({len(output_data)}). Discarding the last point for plotting.")
-        output_data = output_data[:-1]
-
-    raw_values = [val for _, val in output_data]
-    
-    if len(raw_values) < 2:
-        print("Warning: Not enough data points to create SWV plot.")
-        return
-
-    differences = [raw_values[i+1] - raw_values[i] for i in range(0, len(raw_values), 2)]
-
-    num_plot_points = len(differences)
-    if num_plot_points == 0:
-        print("Warning: No difference data to plot for SWV.")
-        return
-
-    scale_factor = end_volt - begin_volt
-    x_coords_to_plot = [begin_volt + i * scale_factor / num_plot_points for i in range(num_plot_points)]
-
-    fig = plt.figure(figsize=PLOT_FIG_SIZE)
-    ax = fig.add_axes(PLOT_AXES_GEOMETRY)
-    ax.plot(x_coords_to_plot, differences, linestyle='-')
-    ax.set_title("SWV Difference Plot")
-    ax.set_xlabel("Voltage (mV)")
-    ax.set_ylabel("Current Diff (uA)")
-    ax.grid(True)
-    fig.savefig(os.path.join(dir_name, 'swv_difference_plot.png'))
-    plt.close(fig)
-    print("Successfully generated SWV difference plot.")
-
 def save_data_and_plots(data):
-    """Saves the collected data and generates plots."""
+    """Saves the collected data."""
     if not data.get('device_name'):
         print("No device name found, cannot save. Skipping.")
         return
@@ -169,45 +111,27 @@ def save_data_and_plots(data):
         for key, value in data['params'].items():
             f.write(f"{key}: {value}\n")
 
-    np.savetxt(os.path.join(full_dir_path, 'voltage_steps.csv'), np.array(data['voltage_steps']), delimiter=',', header='Voltage (mV)', comments='')
+    if data['voltage_steps']:
+        np.savetxt(os.path.join(full_dir_path, 'voltage_steps.csv'), np.array(data['voltage_steps']), delimiter=',', header='Voltage (mV)', comments='')
 
     output_array = np.array(data['output_data'])
     if output_array.size > 0:
       np.savetxt(os.path.join(full_dir_path, 'output_data.csv'), output_array, delimiter=',', header='Index,Value', comments='')
 
-    if data['voltage_steps']:
-        fig = plt.figure(figsize=PLOT_FIG_SIZE)
-        ax = fig.add_axes(PLOT_AXES_GEOMETRY)
-        ax.plot(data['voltage_steps'])
-        ax.set_title('Voltage Steps')
-        ax.set_xlabel('Step')
-        ax.set_ylabel('Voltage (mV)')
-        ax.grid(True)
-        fig.savefig(os.path.join(full_dir_path, 'voltage_steps.png'))
-        plt.close(fig)
-
-    if output_array.size > 0:
-        fig = plt.figure(figsize=PLOT_FIG_SIZE)
-        ax = fig.add_axes(PLOT_AXES_GEOMETRY)
-        ax.plot(output_array[:, 0], output_array[:, 1])
-        ax.set_title('Output Data')
-        ax.set_xlabel('Index')
-        ax.set_ylabel('Value')
-        ax.grid(True)
-        fig.savefig(os.path.join(full_dir_path, 'output_data.png'))
-        plt.close(fig)
-    
-    generate_swv_plot(data, full_dir_path)
-
     print("Finished saving results.")
 
 async def main():
     """Main function to run the BLE data logger."""
+    global OUTPUT_DIR
+    if len(sys.argv) > 1:
+        OUTPUT_DIR = sys.argv[1]
+        print(f"Output directory set to: {OUTPUT_DIR}")
+
     if not os.path.exists(OUTPUT_DIR):
         os.makedirs(OUTPUT_DIR)
         print(f"Created base output directory: {OUTPUT_DIR}")
 
-    print(f"Scanning for BLE devices named '{DEVICE_NAME_PREFIX}...'")
+    print(f"Scanning for BLE devices named '{DEVICE_NAME_PREFIX}'...")
     
     target_device = None
     devices = await BleakScanner.discover()

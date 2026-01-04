@@ -173,6 +173,47 @@ app.delete('/api/data/:entryName', async (req, res) => {
 });
 
 
+app.post('/api/data/:entryName/flip', async (req, res) => {
+    const { entryName } = req.params;
+    const csvPath = path.join(dataDir, entryName, 'output_data.csv');
+
+    try {
+        const fileContent = await fs.readFile(csvPath, 'utf-8');
+        // Handle CRLF or LF
+        const lines = fileContent.trim().split(/\r?\n/);
+        
+        if (lines.length < 2) {
+            return res.status(400).send('Not enough data to flip');
+        }
+
+        const header = lines[0];
+        const dataLines = lines.slice(1);
+        
+        // Parse data: Assuming format Index,Value
+        const data = dataLines.map(line => {
+            const parts = line.split(',');
+            return { index: parts[0], value: parts[1] };
+        });
+
+        // Swap pairs
+        for (let i = 0; i < data.length - 1; i += 2) {
+            const temp = data[i].value;
+            data[i].value = data[i+1].value;
+            data[i+1].value = temp;
+        }
+
+        // Reconstruct CSV
+        const newContent = [header, ...data.map(d => `${d.index},${d.value}`)].join('\n');
+        
+        await fs.writeFile(csvPath, newContent, 'utf-8');
+        res.status(200).send('Data flipped successfully');
+
+    } catch (error) {
+        console.error('Error flipping data:', error);
+        res.status(500).send('Error flipping data');
+    }
+});
+
 app.listen(port, () => {
   console.log(`Backend server listening at http://localhost:${port}`);
 });

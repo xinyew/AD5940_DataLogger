@@ -61,7 +61,7 @@ function App() {
   // Comparison State
   const [comparedEntries, setComparedEntries] = useState<string[]>([]);
   const [comparisonData, setComparisonData] = useState<{ [entry: string]: EntryPlotSet }>({});
-
+  
   const [showRawData, setShowRawData] = useState(false);
   const [showVoltageSteps, setShowVoltageSteps] = useState(false);
   const [rawData, setRawData] = useState<CsvData | null>(null);
@@ -106,7 +106,7 @@ function App() {
           });
 
           // 2. Fetch Raw Output
-          const outputRes = await axios.get(`${API_URL}/api/data/${entry}/csv/output_data.csv`);
+          const outputRes = await axios.get(`${API_URL}/api/data/${entry}/csv/output_data.csv?t=${Date.now()}`);
           const outputLines = outputRes.data.trim().split('\n');
           const outputRows = outputLines.slice(1).map((line: string) => line.split(',').map(Number));
           const rawX = outputRows.map((row: number[]) => row[0]);
@@ -153,7 +153,7 @@ function App() {
           }
 
           // 4. Fetch Voltage Steps
-          const voltRes = await axios.get(`${API_URL}/api/data/${entry}/csv/voltage_steps.csv`);
+          const voltRes = await axios.get(`${API_URL}/api/data/${entry}/csv/voltage_steps.csv?t=${Date.now()}`);
           const voltLines = voltRes.data.trim().split('\n');
           const voltValues = voltLines.slice(1).map((line: string) => parseFloat(line.trim()));
           const voltX = voltValues.map((_: number, idx: number) => idx);
@@ -196,6 +196,28 @@ function App() {
           if (prev.includes(entry)) return prev.filter(e => e !== entry);
           return [...prev, entry];
       });
+  };
+
+  const handleFlipData = async (entry: string) => {
+      if (!window.confirm(`Are you sure you want to flip the data values for ${entry}? This will permanently modify the CSV file.`)) {
+          return;
+      }
+      try {
+          await axios.post(`${API_URL}/api/data/${entry}/flip`);
+          // Reload data for this entry
+          if (entry === selectedEntry) {
+              // Reload current
+              fetchAndProcessPlotData(entry, parameters);
+          }
+          // If it's in comparison data, reload it there too
+          if (comparedEntries.includes(entry)) {
+              const newData = await getPlotDataForEntry(entry);
+              setComparisonData(prev => ({ ...prev, [entry]: newData }));
+          }
+      } catch (error) {
+          console.error('Error flipping data:', error);
+          alert('Failed to flip data.');
+      }
   };
 
   // Fetch all data and set up polling
@@ -749,6 +771,15 @@ function App() {
                             <label className="form-check-label" htmlFor="checkEven">Even</label>
                         </div>
                     </div>
+                    <div className="border-start ps-2 ms-2">
+                        <button 
+                            className="btn btn-sm btn-outline-warning" 
+                            onClick={() => selectedEntry && handleFlipData(selectedEntry)}
+                            title="Permanently swap Odd/Even values in CSV"
+                        >
+                            Flip Data
+                        </button>
+                    </div>
                 </div>
                 <div className="card-body">
                     {/* Check if ANY data is available to display */}
@@ -823,7 +854,7 @@ function App() {
         {renderCommentBox()}
 
         <div className="mt-4">
-          <button className="btn btn-secondary me-2" onClick={() => handleToggleData('rawData')}>
+          <button className="btn btn-secondary me-2" onClick={() => handleToggleData('rawData')}> 
             {showRawData ? 'Hide' : 'Show'} Raw Data
           </button>
           <button className="btn btn-secondary" onClick={() => handleToggleData('voltageSteps')}> 
