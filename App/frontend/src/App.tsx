@@ -349,6 +349,16 @@ function App() {
 
     // Fetch and process data for plots
     fetchAndProcessPlotData(entry, currentParams);
+
+    // Refresh tables if visible
+    if (showRawData) {
+        const data = await fetchTableData(entry, 'output_data.csv');
+        setRawData(data);
+    }
+    if (showVoltageSteps) {
+        const data = await fetchTableData(entry, 'voltage_steps.csv');
+        setVoltageStepsData(data);
+    }
   };
 
   const fetchAndProcessPlotData = async (entry: string, _params: Parameter[]) => {
@@ -434,25 +444,30 @@ function App() {
     }
   };
 
+  const fetchTableData = async (entry: string, fileName: string): Promise<CsvData | null> => {
+      try {
+        const response = await axios.get(`${API_URL}/api/data/${entry}/csv/${fileName}`);
+        const lines = response.data.trim().split('\n');
+        const headers = lines[0].split(',');
+        const rows = lines.slice(1).map((line: string) => line.split(','));
+        return { headers, rows };
+      } catch (error) {
+        console.error(`Error fetching ${fileName}:`, error);
+        return null;
+      }
+  };
+
   const handleToggleData = async (dataType: 'rawData' | 'voltageSteps') => {
     const shouldShow = dataType === 'rawData' ? !showRawData : !showVoltageSteps;
     const setter = dataType === 'rawData' ? setShowRawData : setShowVoltageSteps;
     const dataSetter = dataType === 'rawData' ? setRawData : setVoltageStepsData;
-    const currentData = dataType === 'rawData' ? rawData : voltageStepsData;
     const fileName = dataType === 'rawData' ? 'output_data.csv' : 'voltage_steps.csv';
 
     setter(shouldShow);
 
-    if (shouldShow && !currentData && selectedEntry) {
-      try {
-        const response = await axios.get(`${API_URL}/api/data/${selectedEntry}/csv/${fileName}`);
-        const lines = response.data.trim().split('\n');
-        const headers = lines[0].split(',');
-        const rows = lines.slice(1).map((line: string) => line.split(','));
-        dataSetter({ headers, rows });
-      } catch (error) {
-        console.error(`Error fetching ${fileName}:`, error);
-      }
+    if (shouldShow && selectedEntry) {
+        const data = await fetchTableData(selectedEntry, fileName);
+        dataSetter(data);
     }
   };
 
