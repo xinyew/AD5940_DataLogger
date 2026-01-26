@@ -3,12 +3,15 @@ import datetime
 import os
 import sys
 import numpy as np
+import struct
+import json
 from bleak import BleakScanner, BleakClient
 
 # --- Configuration ---
 # UUIDs retrieved from config/btconf/gatt_configuration.btconf
 LOG_DATA_CHARACTERISTIC_UUID = "513eb430-89eb-4d7f-880d-7ee23aa0b593"
 MEASUREMENT_DATA_CHARACTERISTIC_UUID = "dfe54d26-a9d5-4398-acf5-2585b41dd956"
+WRITE_CHARACTERISTIC_UUID = "b36186fc-e0d3-4351-81fe-461c0aaa9588"
 
 # The name prefix to search for
 DEVICE_NAME_PREFIX = "THOR"
@@ -32,8 +35,7 @@ def parse_line(line, state, data):
             save_data_and_plots(data)
 
         # Reset data for the new run.
-        print("\n--- Resetting parser state for new run. ---\
-")
+        print("\n--- Resetting parser state for new run. ---")
         sys.stdout.flush()
         data.clear()
         data.update({
@@ -161,6 +163,50 @@ def save_data_and_plots(data):
     print("Finished saving results.")
     sys.stdout.flush()
 
+def pack_swv_params(params):
+    # Header: CommandType (1 for SWV) - uint32
+    # RampStartVolt (float)
+    # RampPeakVolt (float)
+    # Frequency (float)
+    # SqrWvAmplitude (float)
+    # SqrWvRampIncrement (float)
+    # SampleDelay (float)
+    # LPTIARtiaSel (uint32)
+    
+    cmd_type = 1
+    return struct.pack('<IffffffI', 
+        cmd_type,
+        float(params.get('RampStartVolt', -0.5)),
+        float(params.get('RampPeakVolt', 0.5)),
+        float(params.get('Frequency', 5.0)),
+        float(params.get('SqrWvAmplitude', 0.05)),
+        float(params.get('SqrWvRampIncrement', 0.01)),
+        float(params.get('SampleDelay', 1.0)),
+        int(params.get('LPTIARtiaSel', 1000))
+    )
+
+def pack_cv_params(params):
+    # Header: CommandType (2 for CV) - uint32
+    # RampStartVolt (float)
+    # RampPeakVolt (float)
+    # StepNumber (uint32)
+    # RampDuration (uint32)
+    # SampleDelay (float)
+    # LPTIARtiaSel (uint32)
+    # bRampOneDir (uint32)
+
+    cmd_type = 2
+    return struct.pack('<IffIIfII', 
+        cmd_type,
+        float(params.get('RampStartVolt', -0.5)),
+        float(params.get('RampPeakVolt', 0.5)),
+        int(params.get('StepNumber', 100)),
+        int(params.get('RampDuration', 10000)),
+        float(params.get('SampleDelay', 1.0)),
+        int(params.get('LPTIARtiaSel', 1000)),
+        int(params.get('bRampOneDir', 0))
+    )
+
 async def main():
     """Main function to run the BLE data logger."""
     print(f"DEBUG: sys.argv: {sys.argv}")
@@ -182,7 +228,7 @@ async def main():
     
     # If no specific name provided, scan for PREFIX
     if not target_device_name:
-        print(f"Scanning for BLE devices named '{DEVICE_NAME_PREFIX}...'")
+        print(f"Scanning for BLE devices named '{DEVICE_NAME_PREFIX}'...")
         sys.stdout.flush()
         target_device = None
         devices = await BleakScanner.discover()
@@ -268,16 +314,45 @@ async def main():
                         break # EOF
                     
                     user_input = user_input.strip()
+                    if not user_input:
+                        continue
+
                     print(f"DEBUG: Input received: '{user_input}'")
                     sys.stdout.flush()
 
-                    if user_input == 'TRIGGER':
-                        # Trigger measurement by reading the characteristic
+                    if user_input.startswith('START_MEASUREMENT'):
+                        # Parse JSON payload
+                        try:
+                            json_str = user_input[len('START_MEASUREMENT'):].strip()
+                            params = json.loads(json_str)
+                            print(f"Preparing to write parameters: {params}")
+                            
+                            meas_type = params.get('type')
+                            payload = None
+                            
+                            if meas_type == 'SWV':
+                                payload = pack_swv_params(params)
+                            elif meas_type == 'CV':
+                                payload = pack_cv_params(params)
+                            else:
+                                print(f"Unknown measurement type: {meas_type}")
+
+                            if payload:
+                                print(f"Writing {len(payload)} bytes to {WRITE_CHARACTERISTIC_UUID}")
+                                sys.stdout.flush()
+                                await client.write_gatt_char(WRITE_CHARACTERISTIC_UUID, payload)
+                                print("Command sent successfully.")
+                            
+                        except Exception as e:
+                            print(f"Failed to process measurement command: {e}")
+                            sys.stdout.flush()
+
+                    elif user_input == 'TRIGGER':
+                        # Legacy Trigger
                         print(f"Triggering measurement via UUID {MEASUREMENT_DATA_CHARACTERISTIC_UUID}...")
                         sys.stdout.flush()
                         try:
                             await client.read_gatt_char(MEASUREMENT_DATA_CHARACTERISTIC_UUID)
-                            # Note: The data comes back via notifications, so we ignore the read result here.
                         except Exception as e:
                             print(f"Failed to trigger measurement: {e}")
                             sys.stdout.flush()

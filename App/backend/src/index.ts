@@ -68,8 +68,9 @@ app.post('/api/disconnect', (req, res) => {
 
 app.post('/api/trigger', (req, res) => {
     try {
-        bleManager.triggerRead();
-        res.json({ success: true, message: 'Read triggered' });
+        const params = req.body;
+        bleManager.triggerMeasurement(params);
+        res.json({ success: true, message: 'Measurement triggered' });
     } catch (error: any) {
         res.status(500).json({ error: error.message });
     }

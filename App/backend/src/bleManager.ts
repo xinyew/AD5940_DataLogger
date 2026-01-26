@@ -112,9 +112,10 @@ export class BleManager extends EventEmitter {
         }
     }
 
-    public triggerRead() {
+    public triggerMeasurement(params: any) {
         if (this.process) {
-            this.process.stdin?.write('TRIGGER\n');
+            const command = `START_MEASUREMENT ${JSON.stringify(params)}\n`;
+            this.process.stdin?.write(command);
         } else {
             throw new Error('Not connected');
         }
