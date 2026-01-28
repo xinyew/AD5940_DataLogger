@@ -9,6 +9,15 @@ const RtiaValues = [
     "128000", "160000", "196000", "256000", "512000"
 ];
 
+const getRtiaLabel = (ohmStr: string) => {
+    const ohm = parseInt(ohmStr);
+    if (ohm === 0) return "±inf (0 Ω)";
+    const uA = 1024000 / ohm;
+    const currentLabel = uA >= 1000 ? `${(uA / 1000).toFixed(1)} mA` : `${uA.toFixed(1)} µA`;
+    const ohmLabel = ohm >= 1000 ? `${ohm / 1000}k` : `${ohm}`;
+    return `${currentLabel} (RTIA: ${ohmLabel} Ω)`;
+};
+
 interface ConnectionManagerProps {}
 
 type MeasurementType = 'SWV' | 'CV';
@@ -27,16 +36,13 @@ interface MeasurementParams {
 }
 
 const defaultParams: MeasurementParams = {
-    RampStartVolt: -0.5,
-    RampPeakVolt: 0.5,
+    RampStartVolt: -500, // -0.5 V -> -500 mV
+    RampPeakVolt: 500,   // 0.5 V -> 500 mV
     Frequency: 25.0,
-    SqrWvAmplitude: 0.05,
-    SqrWvRampIncrement: 0.01,
+    SqrWvAmplitude: 50,  // 0.05 V -> 50 mV
+    SqrWvRampIncrement: 10, // 0.01 V -> 10 mV
     SampleDelay: 1.0,
-    LPTIARtiaSel: 2000, // Default to a reasonable value like 2000 (index 3), but wait... 
-                        // The default sets the VALUE, but we store the INDEX or VALUE? 
-                        // Let's store the index to be consistent with the backend requirement.
-                        // "2000" is at index 3.
+    LPTIARtiaSel: 2000, 
     StepNumber: 100,
     RampDuration: 10000,
     bRampOneDir: 0
@@ -177,10 +183,32 @@ const ConnectionManager: React.FC<ConnectionManagerProps> = () => {
         isReadingRef.current = true;
         try {
             setLoading(true);
-            const payload = {
+            
+            let payload: any = {
                 type: measType,
-                ...params
+                // Common Params (sent as mV directly)
+                RampStartVolt: params.RampStartVolt,
+                RampPeakVolt: params.RampPeakVolt,
+                SampleDelay: params.SampleDelay,
+                LPTIARtiaSel: params.LPTIARtiaSel
             };
+
+            if (measType === 'SWV') {
+                payload = {
+                    ...payload,
+                    Frequency: params.Frequency,
+                    SqrWvAmplitude: params.SqrWvAmplitude,
+                    SqrWvRampIncrement: params.SqrWvRampIncrement
+                };
+            } else if (measType === 'CV') {
+                payload = {
+                    ...payload,
+                    StepNumber: params.StepNumber,
+                    RampDuration: params.RampDuration,
+                    bRampOneDir: params.bRampOneDir
+                };
+            }
+
             console.log("Sending payload:", payload);
             await axios.post(`${API_URL}/api/trigger`, payload);
             setShowMeasureModal(false);
@@ -300,7 +328,7 @@ const ConnectionManager: React.FC<ConnectionManagerProps> = () => {
                                         />
                                     </div>
                                     <div className="col-md-6">
-                                        <label className="form-label">Peak Volt (mV)</label>
+                                        <label className="form-label">End Volt (mV)</label>
                                         <input type="number" step="0.01" className="form-control" 
                                             value={params.RampPeakVolt} 
                                             onChange={(e) => handleParamChange('RampPeakVolt', parseFloat(e.target.value))} 
@@ -314,14 +342,25 @@ const ConnectionManager: React.FC<ConnectionManagerProps> = () => {
                                         />
                                     </div>
                                     <div className="col-md-6">
-                                        <label className="form-label">LPTIA Rtia Selection</label>
+                                        <label className="form-label">Current Range</label>
                                         <select 
                                             className="form-select" 
                                             value={params.LPTIARtiaSel} 
                                             onChange={(e) => handleParamChange('LPTIARtiaSel', parseInt(e.target.value))}
                                         >
-                                            {RtiaValues.map((val, idx) => (
-                                                <option key={idx} value={idx}>{val} Ohm</option>
+                                            {RtiaValues.map((val, idx) => ({ val, idx }))
+                                                .sort((a, b) => {
+                                                    const ohmA = parseInt(a.val);
+                                                    const ohmB = parseInt(b.val);
+                                                    // 0 Ohm is Infinite Current (largest)
+                                                    if (ohmA === 0) return 1; 
+                                                    if (ohmB === 0) return -1;
+                                                    // Larger Resistance = Smaller Current. 
+                                                    // We want Current Ascending -> Resistance Descending
+                                                    return ohmB - ohmA;
+                                                })
+                                                .map((item) => (
+                                                <option key={item.idx} value={item.idx}>{getRtiaLabel(item.val)}</option>
                                             ))}
                                         </select>
                                     </div>
