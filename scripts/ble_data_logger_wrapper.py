@@ -207,6 +207,30 @@ def pack_cv_params(params):
         int(params.get('bRampOneDir', 0))
     )
 
+def pack_swvhstia_params(params):
+    # Header: CommandType (3 for SWVHSTIA) - uint32
+    # RampStartVolt (float)
+    # RampPeakVolt (float)
+    # Frequency (float)
+    # SqrWvAmplitude (float)
+    # SqrWvRampIncrement (float)
+    # SampleDelay (float)
+    # HsTIARtiaSel (uint32)
+    # CtiaSel (uint32)
+    
+    cmd_type = 3
+    return struct.pack('<IffffffII', 
+        cmd_type,
+        float(params.get('RampStartVolt', -0.5)),
+        float(params.get('RampPeakVolt', 0.5)),
+        float(params.get('Frequency', 5.0)),
+        float(params.get('SqrWvAmplitude', 0.05)),
+        float(params.get('SqrWvRampIncrement', 0.01)),
+        float(params.get('SampleDelay', 1.0)),
+        int(params.get('HsTIARtiaSel', 0)),
+        int(params.get('CtiaSel', 16))
+    )
+
 async def main():
     """Main function to run the BLE data logger."""
     print(f"DEBUG: sys.argv: {sys.argv}")
@@ -334,6 +358,8 @@ async def main():
                                 payload = pack_swv_params(params)
                             elif meas_type == 'CV':
                                 payload = pack_cv_params(params)
+                            elif meas_type == 'SWVHSTIA':
+                                payload = pack_swvhstia_params(params)
                             else:
                                 print(f"Unknown measurement type: {meas_type}")
 

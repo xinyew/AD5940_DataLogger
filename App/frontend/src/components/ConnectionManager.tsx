@@ -9,6 +9,12 @@ const RtiaValues = [
     "128000", "160000", "196000", "256000", "512000"
 ];
 
+const HsTIARtiaValues = [
+    "200", "1000", "5000", "10000", "20000", "40000", "80000", "160000", "0"
+];
+
+const CtiaValues = Array.from({ length: 32 }, (_, i) => i + 1);
+
 const getRtiaLabel = (ohmStr: string) => {
     const ohm = parseInt(ohmStr);
     if (ohm === 0) return "±inf (0 Ω)";
@@ -20,7 +26,7 @@ const getRtiaLabel = (ohmStr: string) => {
 
 interface ConnectionManagerProps {}
 
-type MeasurementType = 'SWV' | 'CV';
+type MeasurementType = 'SWV' | 'CV' | 'SWVHSTIA';
 
 interface MeasurementParams {
     RampStartVolt: number;
@@ -30,6 +36,8 @@ interface MeasurementParams {
     SqrWvRampIncrement: number;
     SampleDelay: number;
     LPTIARtiaSel: number; // Index in RtiaValues
+    HsTIARtiaSel: number; // Index in HsTIARtiaValues
+    CtiaSel: number; // Value 1-32
     StepNumber: number;
     RampDuration: number;
     bRampOneDir: number; // 0 or 1
@@ -43,13 +51,16 @@ const defaultParams: MeasurementParams = {
     SqrWvRampIncrement: 10, // 0.01 V -> 10 mV
     SampleDelay: 1.0,
     LPTIARtiaSel: 2000, 
+    HsTIARtiaSel: 5000, // Default to 5k
+    CtiaSel: 16,
     StepNumber: 100,
     RampDuration: 10000,
     bRampOneDir: 0
 };
 
-// Find default index for 2000
+// Find default index for 2000 and 5000
 const defaultRtiaIndex = RtiaValues.indexOf("2000");
+const defaultHsRtiaIndex = HsTIARtiaValues.indexOf("5000");
 
 const ConnectionManager: React.FC<ConnectionManagerProps> = () => {
     // Connection State
@@ -70,7 +81,8 @@ const ConnectionManager: React.FC<ConnectionManagerProps> = () => {
     const [measType, setMeasType] = useState<MeasurementType>('SWV');
     const [params, setParams] = useState<MeasurementParams>({
         ...defaultParams,
-        LPTIARtiaSel: defaultRtiaIndex >= 0 ? defaultRtiaIndex : 3
+        LPTIARtiaSel: defaultRtiaIndex >= 0 ? defaultRtiaIndex : 3,
+        HsTIARtiaSel: defaultHsRtiaIndex >= 0 ? defaultHsRtiaIndex : 2
     });
 
     const isReadingRef = useRef(false);
@@ -190,7 +202,6 @@ const ConnectionManager: React.FC<ConnectionManagerProps> = () => {
                 RampStartVolt: params.RampStartVolt,
                 RampPeakVolt: params.RampPeakVolt,
                 SampleDelay: params.SampleDelay,
-                LPTIARtiaSel: params.LPTIARtiaSel
             };
 
             if (measType === 'SWV') {
@@ -198,14 +209,25 @@ const ConnectionManager: React.FC<ConnectionManagerProps> = () => {
                     ...payload,
                     Frequency: params.Frequency,
                     SqrWvAmplitude: params.SqrWvAmplitude,
-                    SqrWvRampIncrement: params.SqrWvRampIncrement
+                    SqrWvRampIncrement: params.SqrWvRampIncrement,
+                    LPTIARtiaSel: params.LPTIARtiaSel
                 };
             } else if (measType === 'CV') {
                 payload = {
                     ...payload,
                     StepNumber: params.StepNumber,
                     RampDuration: params.RampDuration,
-                    bRampOneDir: params.bRampOneDir
+                    bRampOneDir: params.bRampOneDir,
+                    LPTIARtiaSel: params.LPTIARtiaSel
+                };
+            } else if (measType === 'SWVHSTIA') {
+                payload = {
+                    ...payload,
+                    Frequency: params.Frequency,
+                    SqrWvAmplitude: params.SqrWvAmplitude,
+                    SqrWvRampIncrement: params.SqrWvRampIncrement,
+                    HsTIARtiaSel: params.HsTIARtiaSel,
+                    CtiaSel: params.CtiaSel
                 };
             }
 
@@ -308,13 +330,19 @@ const ConnectionManager: React.FC<ConnectionManagerProps> = () => {
                                             type="radio" className="btn-check" name="measType" id="typeSWV" 
                                             checked={measType === 'SWV'} onChange={() => setMeasType('SWV')} 
                                         />
-                                        <label className="btn btn-outline-primary" htmlFor="typeSWV">Square Wave (SWV)</label>
+                                        <label className="btn btn-outline-primary" htmlFor="typeSWV">SWV</label>
+
+                                        <input 
+                                            type="radio" className="btn-check" name="measType" id="typeSWVHSTIA" 
+                                            checked={measType === 'SWVHSTIA'} onChange={() => setMeasType('SWVHSTIA')} 
+                                        />
+                                        <label className="btn btn-outline-primary" htmlFor="typeSWVHSTIA">SWV-HSTIA</label>
 
                                         <input 
                                             type="radio" className="btn-check" name="measType" id="typeCV" 
                                             checked={measType === 'CV'} onChange={() => setMeasType('CV')} 
                                         />
-                                        <label className="btn btn-outline-primary" htmlFor="typeCV">Cyclic Voltammetry (CV)</label>
+                                        <label className="btn btn-outline-primary" htmlFor="typeCV">CV</label>
                                     </div>
                                 </div>
 
@@ -328,7 +356,7 @@ const ConnectionManager: React.FC<ConnectionManagerProps> = () => {
                                         />
                                     </div>
                                     <div className="col-md-6">
-                                        <label className="form-label">End Volt (mV)</label>
+                                        <label className="form-label">Peak Volt (mV)</label>
                                         <input type="number" step="0.01" className="form-control" 
                                             value={params.RampPeakVolt} 
                                             onChange={(e) => handleParamChange('RampPeakVolt', parseFloat(e.target.value))} 
@@ -341,32 +369,71 @@ const ConnectionManager: React.FC<ConnectionManagerProps> = () => {
                                             onChange={(e) => handleParamChange('SampleDelay', parseFloat(e.target.value))} 
                                         />
                                     </div>
-                                    <div className="col-md-6">
-                                        <label className="form-label">Current Range</label>
-                                        <select 
-                                            className="form-select" 
-                                            value={params.LPTIARtiaSel} 
-                                            onChange={(e) => handleParamChange('LPTIARtiaSel', parseInt(e.target.value))}
-                                        >
-                                            {RtiaValues.map((val, idx) => ({ val, idx }))
-                                                .sort((a, b) => {
-                                                    const ohmA = parseInt(a.val);
-                                                    const ohmB = parseInt(b.val);
-                                                    // 0 Ohm is Infinite Current (largest)
-                                                    if (ohmA === 0) return 1; 
-                                                    if (ohmB === 0) return -1;
-                                                    // Larger Resistance = Smaller Current. 
-                                                    // We want Current Ascending -> Resistance Descending
-                                                    return ohmB - ohmA;
-                                                })
-                                                .map((item) => (
-                                                <option key={item.idx} value={item.idx}>{getRtiaLabel(item.val)}</option>
-                                            ))}
-                                        </select>
-                                    </div>
+                                    
+                                    {/* LPTIA Selection (Hidden for SWVHSTIA) */}
+                                    {measType !== 'SWVHSTIA' && (
+                                        <div className="col-md-6">
+                                            <label className="form-label">LPTIA Rtia Selection</label>
+                                            <select 
+                                                className="form-select" 
+                                                value={params.LPTIARtiaSel} 
+                                                onChange={(e) => handleParamChange('LPTIARtiaSel', parseInt(e.target.value))}
+                                            >
+                                                {RtiaValues.map((val, idx) => ({ val, idx }))
+                                                    .sort((a, b) => {
+                                                        const ohmA = parseInt(a.val);
+                                                        const ohmB = parseInt(b.val);
+                                                        if (ohmA === 0) return 1; 
+                                                        if (ohmB === 0) return -1;
+                                                        return ohmB - ohmA;
+                                                    })
+                                                    .map((item) => (
+                                                    <option key={item.idx} value={item.idx}>{getRtiaLabel(item.val)}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                    )}
 
-                                    {/* SWV Specific */}
-                                    {measType === 'SWV' && (
+                                    {/* SWVHSTIA Specific: HsTIARtiaSel and CtiaSel */}
+                                    {measType === 'SWVHSTIA' && (
+                                        <>
+                                            <div className="col-md-6">
+                                                <label className="form-label">HsTIA Rtia Selection</label>
+                                                <select 
+                                                    className="form-select" 
+                                                    value={params.HsTIARtiaSel} 
+                                                    onChange={(e) => handleParamChange('HsTIARtiaSel', parseInt(e.target.value))}
+                                                >
+                                                    {HsTIARtiaValues.map((val, idx) => ({ val, idx }))
+                                                        .sort((a, b) => {
+                                                            const ohmA = parseInt(a.val);
+                                                            const ohmB = parseInt(b.val);
+                                                            if (ohmA === 0) return 1; 
+                                                            if (ohmB === 0) return -1;
+                                                            return ohmB - ohmA;
+                                                        })
+                                                        .map((item) => (
+                                                        <option key={item.idx} value={item.idx}>{getRtiaLabel(item.val)}</option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                            <div className="col-md-6">
+                                                <label className="form-label">Ctia Selection</label>
+                                                <select 
+                                                    className="form-select" 
+                                                    value={params.CtiaSel} 
+                                                    onChange={(e) => handleParamChange('CtiaSel', parseInt(e.target.value))}
+                                                >
+                                                    {CtiaValues.map((val) => (
+                                                        <option key={val} value={val}>{val}</option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                        </>
+                                    )}
+
+                                    {/* SWV & SWVHSTIA Params */}
+                                    {(measType === 'SWV' || measType === 'SWVHSTIA') && (
                                         <>
                                             <div className="col-md-6">
                                                 <label className="form-label">Frequency (Hz)</label>
