@@ -93,6 +93,11 @@ function App() {
   const [rawLayout, setRawLayout] = useState({});
   const [vStepsLayout, setVStepsLayout] = useState({});
 
+  // Import State
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importText, setImportText] = useState('');
+  const [importFormat, setImportFormat] = useState('PalmSens4');
+
   // Helper: Fetch Plot Data for ANY entry
   const getPlotDataForEntry = async (entry: string): Promise<EntryPlotSet> => {
       const result: EntryPlotSet = { swv: null, swvOdd: null, swvEven: null, raw: null, voltage: null };
@@ -484,6 +489,87 @@ function App() {
     let formatted = num.toFixed(10).replace(/\.?0+$/, "");
     
     return formatted;
+  };
+
+  const handleImportData = async () => {
+      try {
+          if (importFormat === 'PalmSens4') {
+              const lines = importText.trim().split('\n');
+              // Find header row containing potential and currents
+              const headerIndex = lines.findIndex(l => l.includes('potential/V') && l.includes('Reverse/') && l.includes('Forward/'));
+              
+              if (headerIndex === -1) {
+                  alert("Invalid PalmSens4 format: Could not find header row with 'potential/V', 'Reverse', and 'Forward'.");
+                  return;
+              }
+
+              const headerLine = lines[headerIndex];
+              const sep = headerLine.includes('\t') ? '\t' : ',';
+              const headers = headerLine.split(sep).map(h => h.trim());
+
+              const voltIndex = headers.indexOf('potential/V');
+              // Use findIndex with startsWith to handle special characters like µA
+              const revIndex = headers.findIndex(h => h.startsWith('Reverse/'));
+              const fwdIndex = headers.findIndex(h => h.startsWith('Forward/'));
+
+              if (voltIndex === -1 || revIndex === -1 || fwdIndex === -1) {
+                   alert("Invalid PalmSens4 format: Missing required columns.");
+                   return;
+              }
+
+              const interleavedCurrents: number[] = [];
+              const rawPotentials: number[] = [];
+
+              for (let i = headerIndex + 1; i < lines.length; i++) {
+                  const line = lines[i].trim();
+                  if (!line) continue;
+                  
+                  const parts = line.split(sep);
+                  
+                  if (parts.length > Math.max(voltIndex, revIndex, fwdIndex)) {
+                      const vVal = parseFloat(parts[voltIndex]); // Volts
+                      const rVal = parseFloat(parts[revIndex]);  // Reverse (Even)
+                      const fVal = parseFloat(parts[fwdIndex]);  // Forward (Odd)
+
+                      if (!isNaN(vVal) && !isNaN(rVal) && !isNaN(fVal)) {
+                          rawPotentials.push(vVal * 1000); // Store as mV
+                          // User requested: 0th Reverse -> 0th Forward -> 1st Reverse -> 1st Forward ...
+                          interleavedCurrents.push(rVal); // Even
+                          interleavedCurrents.push(fVal); // Odd
+                      }
+                  }
+              }
+
+              if (interleavedCurrents.length === 0) {
+                  alert("No valid data points found.");
+                  return;
+              }
+
+              // Set params for the SWV plot calculation logic
+              const startVolt = rawPotentials[0];
+              const peakVolt = rawPotentials[rawPotentials.length - 1];
+
+              // Send to backend
+              const response = await axios.post(`${API_URL}/api/import`, {
+                  deviceName: 'PalmSens4',
+                  voltages: [], // User requested blank voltage steps
+                  currents: interleavedCurrents,
+                  params: {
+                      Param_RampStartVolt: startVolt,
+                      Param_RampPeakVolt: peakVolt
+                  }
+              });
+              
+              if (response.data.success) {
+                  alert("Import successful!");
+                  setShowImportModal(false);
+                  setImportText('');
+              }
+          }
+      } catch (error: any) {
+          console.error("Import failed:", error);
+          alert(`Import failed: ${error.message}`);
+      }
   };
 
   // --- RENDER FUNCTIONS ---
@@ -903,8 +989,11 @@ function App() {
               {renderParametersSidebarCard()}
               {renderFilterSidebar()}
               <div className="card sidebar-card mt-3">
-                <div className="card-header">
-                  Data Entries
+                <div className="card-header d-flex justify-content-between align-items-center">
+                    <span>Data Entries</span>
+                    <button className="btn btn-sm btn-outline-primary" onClick={() => setShowImportModal(true)} title="Import Data">
+                        Add
+                    </button>
                 </div>
                 <div className="card-body">
                   <ul className="nav flex-column">
@@ -955,6 +1044,45 @@ function App() {
           {renderDetailView()}
         </div>
       </div>
+
+      {/* Import Modal */}
+      {showImportModal && (
+        <div className="modal show d-block" tabIndex={-1} style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
+            <div className="modal-dialog modal-lg">
+                <div className="modal-content">
+                    <div className="modal-header">
+                        <h5 className="modal-title">Import Data</h5>
+                        <button type="button" className="btn-close" onClick={() => setShowImportModal(false)}></button>
+                    </div>
+                    <div className="modal-body">
+                        <div className="mb-3">
+                            <label className="form-label">Data Format</label>
+                            <select className="form-select" value={importFormat} onChange={(e) => setImportFormat(e.target.value)}>
+                                <option value="PalmSens4">PalmSens4</option>
+                            </select>
+                        </div>
+                        <div className="mb-3">
+                            <label className="form-label">Paste Data (CSV/Text)</label>
+                            <textarea 
+                                className="form-control" 
+                                rows={10} 
+                                value={importText} 
+                                onChange={(e) => setImportText(e.target.value)}
+                                placeholder="Paste data here..."
+                                style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}
+                            ></textarea>
+                        </div>
+                    </div>
+                    <div className="modal-footer">
+                        <button type="button" className="btn btn-secondary" onClick={() => setShowImportModal(false)}>Cancel</button>
+                        <button type="button" className="btn btn-primary" onClick={handleImportData} disabled={!importText.trim()}>
+                            Import
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+      )}
     </>
   );
 }

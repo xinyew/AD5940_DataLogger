@@ -215,6 +215,46 @@ app.post('/api/data/:entryName/flip', async (req, res) => {
     }
 });
 
+app.post('/api/import', async (req, res) => {
+    const { deviceName, voltages, currents, params } = req.body;
+    
+    if (!deviceName || !currents || !Array.isArray(currents)) {
+        return res.status(400).json({ error: 'Invalid data format' });
+    }
+
+    try {
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').split('T').join('_').slice(0, 19);
+        const dirName = `${timestamp}_Imported_${deviceName}`;
+        const dirPath = path.join(dataDir, dirName);
+
+        await fs.mkdir(dirPath, { recursive: true });
+
+        // Write parameters.txt
+        let paramsContent = `Device Name: ${deviceName}\nImported: True\n`;
+        if (params && typeof params === 'object') {
+            for (const [key, value] of Object.entries(params)) {
+                paramsContent += `${key}: ${value}\n`;
+            }
+        }
+        await fs.writeFile(path.join(dirPath, 'parameters.txt'), paramsContent);
+
+        // Write voltage_steps.csv (User requested blank, but keep header)
+        const voltageHeader = 'Voltage (mV)\n';
+        const voltageContent = voltageHeader + (Array.isArray(voltages) ? voltages.join('\n') : '');
+        await fs.writeFile(path.join(dirPath, 'voltage_steps.csv'), voltageContent);
+
+        // Write output_data.csv (Index,Value)
+        const outputHeader = 'Index,Value\n';
+        const outputContent = outputHeader + currents.map((val, idx) => `${idx},${val}`).join('\n');
+        await fs.writeFile(path.join(dirPath, 'output_data.csv'), outputContent);
+
+        res.json({ success: true, entryName: dirName });
+    } catch (error: any) {
+        console.error('Error importing data:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 app.listen(port, () => {
   console.log(`Backend server listening at http://localhost:${port}`);
 });
