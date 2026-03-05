@@ -628,8 +628,79 @@ function App() {
 
         // Send to backend
         const response = await axios.post(`${API_URL}/api/import`, {
-          deviceName: 'xylem',
+          deviceName: 'xylem', // Sending as xylem or PalmSens4 is just a label. Let's send as 'xylem' so backend saves it correctly? Wait, what does backend expect? Just saving the array.
           voltages: [], // blank voltage steps
+          currents: interleavedCurrents,
+          params: {
+            Param_RampStartVolt: startVolt,
+            Param_RampPeakVolt: peakVolt
+          }
+        });
+
+        if (response.data.success) {
+          alert("Import successful!");
+          setShowImportModal(false);
+          setImportText('');
+        }
+      } else if (importFormat === 'PalmSens4 (one col)') {
+        const lines = importText.trim().split('\n');
+        // Find header row containing potential and current
+        const headerIndex = lines.findIndex(l => {
+          const trimmedLine = l.trim();
+          return trimmedLine.includes('potential/V') && trimmedLine.includes('current/');
+        });
+
+        if (headerIndex === -1) {
+          alert("Invalid PalmSens4 (one col) format: Could not find header row with 'potential/V' and 'current/'.");
+          return;
+        }
+
+        const headerLine = lines[headerIndex];
+        const sep = headerLine.includes('\t') ? '\t' : ',';
+        const headers = headerLine.split(sep).map(h => h.trim());
+
+        const voltIndex = headers.indexOf('potential/V');
+        const currIndex = headers.findIndex(h => h.startsWith('current/'));
+
+        if (voltIndex === -1 || currIndex === -1) {
+          alert("Invalid PalmSens4 (one col) format: Missing required columns.");
+          return;
+        }
+
+        const interleavedCurrents: number[] = [];
+        const rawPotentials: number[] = [];
+
+        for (let i = headerIndex + 1; i < lines.length; i++) {
+          const line = lines[i].trim();
+          if (!line) continue;
+
+          const parts = line.split(sep);
+
+          if (parts.length > Math.max(voltIndex, currIndex)) {
+            const vVal = parseFloat(parts[voltIndex]); // Volts
+            const cVal = parseFloat(parts[currIndex]);  // Current
+
+            if (!isNaN(vVal) && !isNaN(cVal)) {
+              rawPotentials.push(vVal * 1000); // Store as mV
+              // For a single column, we want it to map to the 'differential' plot. 
+              // Diff = odd - even. So we insert 0 for even (Reverse) and cVal for odd (Forward).
+              interleavedCurrents.push(0);    // Even
+              interleavedCurrents.push(cVal); // Odd
+            }
+          }
+        }
+
+        if (interleavedCurrents.length === 0) {
+          alert("No valid data points found.");
+          return;
+        }
+
+        const startVolt = rawPotentials[0];
+        const peakVolt = rawPotentials[rawPotentials.length - 1];
+
+        const response = await axios.post(`${API_URL}/api/import`, {
+          deviceName: 'PalmSens4 (one col)',
+          voltages: [],
           currents: interleavedCurrents,
           params: {
             Param_RampStartVolt: startVolt,
@@ -1137,6 +1208,7 @@ function App() {
                   <label className="form-label">Data Format</label>
                   <select className="form-select" value={importFormat} onChange={(e) => setImportFormat(e.target.value)}>
                     <option value="PalmSens4">PalmSens4</option>
+                    <option value="PalmSens4 (one col)">PalmSens4 (one col)</option>
                     <option value="xylem">xylem</option>
                   </select>
                 </div>
@@ -1154,6 +1226,8 @@ function App() {
                         setImportFormat('xylem');
                       } else if (topLines.includes('potential/V') && topLines.includes('Reverse/')) {
                         setImportFormat('PalmSens4');
+                      } else if (topLines.includes('potential/V') && topLines.includes('current/')) {
+                        setImportFormat('PalmSens4 (one col)');
                       }
                     }}
                     placeholder="Paste data here, or drag and drop a file..."
@@ -1170,6 +1244,8 @@ function App() {
                             setImportFormat('xylem');
                           } else if (topLines.includes('potential/V') && topLines.includes('Reverse/')) {
                             setImportFormat('PalmSens4');
+                          } else if (topLines.includes('potential/V') && topLines.includes('current/')) {
+                            setImportFormat('PalmSens4 (one col)');
                           }
                         } catch (err) {
                           alert("Failed to read the dropped file.");
