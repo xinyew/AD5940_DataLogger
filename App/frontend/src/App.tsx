@@ -1156,7 +1156,26 @@ function App() {
                         setImportFormat('PalmSens4');
                       }
                     }}
-                    placeholder="Paste data here..."
+                    placeholder="Paste data here, or drag and drop a file..."
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={async (e) => {
+                      e.preventDefault();
+                      if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                        const file = e.dataTransfer.files[0];
+                        try {
+                          const text = await file.text();
+                          setImportText(text);
+                          const topLines = text.split('\n').slice(0, 5).join(' ');
+                          if (topLines.includes('Voltage (mV)') && topLines.includes('Forward Current')) {
+                            setImportFormat('xylem');
+                          } else if (topLines.includes('potential/V') && topLines.includes('Reverse/')) {
+                            setImportFormat('PalmSens4');
+                          }
+                        } catch (err) {
+                          alert("Failed to read the dropped file.");
+                        }
+                      }
+                    }}
                     style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}
                   ></textarea>
                 </div>
